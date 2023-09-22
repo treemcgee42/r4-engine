@@ -12,15 +12,18 @@ allocator: std.mem.Allocator,
 
 instance: vulkan.VkInstance,
 debug_messenger: ?DebugMessenger,
+physical_device: vulkan.VkPhysicalDevice,
 
 pub const VulkanError = error{
     validation_layer_not_present,
     instance_init_failed,
+    no_suitable_gpu,
 
     vk_error_out_of_host_memory,
     vk_error_out_of_device_memory,
     vk_error_extension_not_present,
     vk_error_layer_not_present,
+    vk_error_initialization_failed,
 } || std.mem.Allocator.Error;
 
 const enable_validation_layers = (builtin.mode == .Debug);
@@ -34,12 +37,14 @@ pub fn init(allocator_: std.mem.Allocator) VulkanError!VulkanSystem {
     if (enable_validation_layers) {
         debug_messenger = try DebugMessenger.init(instance);
     }
+    const physical_device = try pick_physical_device(instance, allocator_);
 
     return VulkanSystem{
         .allocator = allocator_,
 
         .instance = instance,
         .debug_messenger = debug_messenger,
+        .physical_device = physical_device,
     };
 }
 
@@ -91,6 +96,10 @@ fn create_vulkan_instance(allocator_: std.mem.Allocator) VulkanError!vulkan.VkIn
 
     var available_extensions_count: u32 = 0;
     result = vulkan.vkEnumerateInstanceExtensionProperties(null, &available_extensions_count, null);
+    if (result != vulkan.VK_SUCCESS) unreachable;
+    var available_extensions = try allocator_.alloc(vulkan.VkExtensionProperties, available_extensions_count);
+    defer allocator_.free(available_extensions);
+    result = vulkan.vkEnumerateInstanceExtensionProperties(null, &available_extensions_count, available_extensions.ptr);
     if (result != vulkan.VK_SUCCESS and result != vulkan.VK_INCOMPLETE) {
         switch (result) {
             vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
@@ -99,7 +108,11 @@ fn create_vulkan_instance(allocator_: std.mem.Allocator) VulkanError!vulkan.VkIn
             else => unreachable,
         }
     }
-    std.debug.print("{d} available extensions.\n", .{available_extensions_count});
+
+    std.log.info("{d} available extensions:", .{available_extensions_count});
+    for (available_extensions) |extension| {
+        std.log.info("\t{s}", .{extension.extensionName});
+    }
 
     const required_extensions = try get_required_extensions(allocator_);
     defer required_extensions.deinit();
@@ -129,6 +142,104 @@ fn create_vulkan_instance(allocator_: std.mem.Allocator) VulkanError!vulkan.VkIn
     }
 
     return vk_instance;
+}
+
+const QueueFamilyIndices = struct {
+    graphics_family: ?u32,
+
+    fn init_null() QueueFamilyIndices {
+        return .{
+            .graphics_family = null,
+        };
+    }
+
+    fn is_complete(self: *const QueueFamilyIndices) bool {
+        return self.graphics_family != null;
+    }
+};
+
+fn find_queue_families(physical_device: vulkan.VkPhysicalDevice, allocator_: std.mem.Allocator) std.mem.Allocator.Error!QueueFamilyIndices {
+    var indices = QueueFamilyIndices.init_null();
+
+    var queue_family_count: u32 = 0;
+    vulkan.vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_count, null);
+    var queue_families = try allocator_.alloc(vulkan.VkQueueFamilyProperties, queue_family_count);
+    defer allocator_.free(queue_families);
+    vulkan.vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_count, queue_families.ptr);
+
+    var i: u32 = 0;
+    while (i < queue_family_count) : (i += 1) {
+        if (indices.is_complete()) break;
+
+        const queue_family = queue_families[i];
+
+        if (queue_family.queueFlags & vulkan.VK_QUEUE_GRAPHICS_BIT != 0) {
+            indices.graphics_family = i;
+        }
+    }
+
+    return indices;
+}
+
+fn is_device_suitable(device: vulkan.VkPhysicalDevice, allocator_: std.mem.Allocator) std.mem.Allocator.Error!bool {
+    const indices = try find_queue_families(device, allocator_);
+
+    return indices.is_complete();
+}
+
+fn pick_physical_device(instance: vulkan.VkInstance, allocator_: std.mem.Allocator) VulkanError!vulkan.VkPhysicalDevice {
+    var device_count: u32 = 0;
+    var result = vulkan.vkEnumeratePhysicalDevices(instance, &device_count, null);
+    if (result != vulkan.VK_SUCCESS) {
+        unreachable;
+    }
+
+    if (device_count == 0) {
+        return VulkanError.no_suitable_gpu;
+    }
+
+    var devices = try allocator_.alloc(vulkan.VkPhysicalDevice, device_count);
+    defer allocator_.free(devices);
+    result = vulkan.vkEnumeratePhysicalDevices(instance, &device_count, devices.ptr);
+    if (result != vulkan.VK_SUCCESS) {
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+            vulkan.VK_ERROR_INITIALIZATION_FAILED => return VulkanError.vk_error_initialization_failed,
+
+            else => unreachable,
+        }
+    }
+
+    var selected_device: ?vulkan.VkPhysicalDevice = null;
+
+    std.log.info("{d} devices found:", .{device_count});
+    for (devices) |device| {
+        var device_properties: vulkan.VkPhysicalDeviceProperties = undefined;
+        vulkan.vkGetPhysicalDeviceProperties(device, &device_properties);
+
+        var device_was_selected = false;
+
+        if (selected_device == null) {
+            const suitable = try is_device_suitable(device, allocator_);
+            if (suitable) {
+                selected_device = device;
+                device_was_selected = true;
+            }
+        }
+
+        if (device_was_selected) {
+            std.log.info("\t{s} (selected)", .{device_properties.deviceName});
+        } else {
+            std.log.info("\t{s}", .{device_properties.deviceName});
+        }
+    }
+
+    if (selected_device == null) {
+        return VulkanError.no_suitable_gpu;
+    }
+
+    return selected_device.?;
 }
 
 fn check_validation_layer_support(allocator_: std.mem.Allocator) VulkanError!bool {
@@ -173,11 +284,8 @@ fn check_validation_layer_support(allocator_: std.mem.Allocator) VulkanError!boo
         }
 
         if (!layer_found) {
-            std.debug.print("couldn't find validation layer {s}\n", .{layer_name});
             return false;
         }
-
-        std.debug.print("found validation layer {s}\n", .{layer_name});
     }
 
     return true;
