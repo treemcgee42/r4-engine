@@ -12,7 +12,11 @@ allocator: std.mem.Allocator,
 
 instance: vulkan.VkInstance,
 debug_messenger: ?DebugMessenger,
+
 physical_device: vulkan.VkPhysicalDevice,
+logical_device: vulkan.VkDevice,
+
+graphics_queue: vulkan.VkQueue,
 
 pub const VulkanError = error{
     validation_layer_not_present,
@@ -24,6 +28,9 @@ pub const VulkanError = error{
     vk_error_extension_not_present,
     vk_error_layer_not_present,
     vk_error_initialization_failed,
+    vk_error_feature_not_present,
+    vk_error_too_many_objects,
+    vk_error_device_lost,
 } || std.mem.Allocator.Error;
 
 const enable_validation_layers = (builtin.mode == .Debug);
@@ -38,17 +45,28 @@ pub fn init(allocator_: std.mem.Allocator) VulkanError!VulkanSystem {
         debug_messenger = try DebugMessenger.init(instance);
     }
     const physical_device = try pick_physical_device(instance, allocator_);
+    const logical_device = try create_logical_device(physical_device, allocator_);
+
+    const queue_family_indices = try find_queue_families(physical_device, allocator_);
+    var graphics_queue: vulkan.VkQueue = undefined;
+    vulkan.vkGetDeviceQueue(logical_device, queue_family_indices.graphics_family.?, 0, &graphics_queue);
 
     return VulkanSystem{
         .allocator = allocator_,
 
         .instance = instance,
         .debug_messenger = debug_messenger,
+
         .physical_device = physical_device,
+        .logical_device = logical_device,
+
+        .graphics_queue = graphics_queue,
     };
 }
 
 pub fn deinit(self: *VulkanSystem) void {
+    vulkan.vkDestroyDevice(self.logical_device, null);
+
     if (enable_validation_layers) {
         self.debug_messenger.?.deinit();
     }
@@ -240,6 +258,119 @@ fn pick_physical_device(instance: vulkan.VkInstance, allocator_: std.mem.Allocat
     }
 
     return selected_device.?;
+}
+
+fn create_logical_device(physical_device: vulkan.VkPhysicalDevice, allocator_: std.mem.Allocator) VulkanError!vulkan.VkDevice {
+    const queue_family_indices = try find_queue_families(physical_device, allocator_);
+
+    const queue_priority: f32 = 1.0;
+    var queue_create_info: vulkan.VkDeviceQueueCreateInfo = .{
+        .sType = vulkan.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+        .queueFamilyIndex = queue_family_indices.graphics_family.?,
+        .queueCount = 1,
+        .pQueuePriorities = &queue_priority,
+        .pNext = null,
+        .flags = 0,
+    };
+
+    const device_features: vulkan.VkPhysicalDeviceFeatures = .{
+        .robustBufferAccess = vulkan.VK_FALSE,
+        .fullDrawIndexUint32 = vulkan.VK_FALSE,
+        .imageCubeArray = vulkan.VK_FALSE,
+        .independentBlend = vulkan.VK_FALSE,
+        .geometryShader = vulkan.VK_FALSE,
+        .tessellationShader = vulkan.VK_FALSE,
+        .sampleRateShading = vulkan.VK_FALSE,
+        .dualSrcBlend = vulkan.VK_FALSE,
+        .logicOp = vulkan.VK_FALSE,
+        .multiDrawIndirect = vulkan.VK_FALSE,
+        .drawIndirectFirstInstance = vulkan.VK_FALSE,
+        .depthClamp = vulkan.VK_FALSE,
+        .depthBiasClamp = vulkan.VK_FALSE,
+        .fillModeNonSolid = vulkan.VK_FALSE,
+        .depthBounds = vulkan.VK_FALSE,
+        .wideLines = vulkan.VK_FALSE,
+        .largePoints = vulkan.VK_FALSE,
+        .alphaToOne = vulkan.VK_FALSE,
+        .multiViewport = vulkan.VK_FALSE,
+        .samplerAnisotropy = vulkan.VK_FALSE,
+        .textureCompressionETC2 = vulkan.VK_FALSE,
+        .textureCompressionASTC_LDR = vulkan.VK_FALSE,
+        .textureCompressionBC = vulkan.VK_FALSE,
+        .occlusionQueryPrecise = vulkan.VK_FALSE,
+        .pipelineStatisticsQuery = vulkan.VK_FALSE,
+        .vertexPipelineStoresAndAtomics = vulkan.VK_FALSE,
+        .fragmentStoresAndAtomics = vulkan.VK_FALSE,
+        .shaderTessellationAndGeometryPointSize = vulkan.VK_FALSE,
+        .shaderImageGatherExtended = vulkan.VK_FALSE,
+        .shaderStorageImageExtendedFormats = vulkan.VK_FALSE,
+        .shaderStorageImageMultisample = vulkan.VK_FALSE,
+        .shaderStorageImageReadWithoutFormat = vulkan.VK_FALSE,
+        .shaderStorageImageWriteWithoutFormat = vulkan.VK_FALSE,
+        .shaderUniformBufferArrayDynamicIndexing = vulkan.VK_FALSE,
+        .shaderSampledImageArrayDynamicIndexing = vulkan.VK_FALSE,
+        .shaderStorageBufferArrayDynamicIndexing = vulkan.VK_FALSE,
+        .shaderStorageImageArrayDynamicIndexing = vulkan.VK_FALSE,
+        .shaderClipDistance = vulkan.VK_FALSE,
+        .shaderCullDistance = vulkan.VK_FALSE,
+        .shaderFloat64 = vulkan.VK_FALSE,
+        .shaderInt64 = vulkan.VK_FALSE,
+        .shaderInt16 = vulkan.VK_FALSE,
+        .shaderResourceResidency = vulkan.VK_FALSE,
+        .shaderResourceMinLod = vulkan.VK_FALSE,
+        .sparseBinding = vulkan.VK_FALSE,
+        .sparseResidencyBuffer = vulkan.VK_FALSE,
+        .sparseResidencyImage2D = vulkan.VK_FALSE,
+        .sparseResidencyImage3D = vulkan.VK_FALSE,
+        .sparseResidency2Samples = vulkan.VK_FALSE,
+        .sparseResidency4Samples = vulkan.VK_FALSE,
+        .sparseResidency8Samples = vulkan.VK_FALSE,
+        .sparseResidency16Samples = vulkan.VK_FALSE,
+        .sparseResidencyAliased = vulkan.VK_FALSE,
+        .variableMultisampleRate = vulkan.VK_FALSE,
+        .inheritedQueries = vulkan.VK_FALSE,
+    };
+
+    var create_info: vulkan.VkDeviceCreateInfo = .{
+        .sType = vulkan.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+        .pQueueCreateInfos = &queue_create_info,
+        .queueCreateInfoCount = 1,
+        .pEnabledFeatures = &device_features,
+        .pNext = null,
+        .flags = 0,
+
+        // To be changed.
+        .enabledLayerCount = 0,
+        .ppEnabledLayerNames = null,
+        .enabledExtensionCount = 0,
+        .ppEnabledExtensionNames = null,
+    };
+
+    var enabled_extensions = [_][*:0]const u8{"VK_KHR_portability_subset"};
+    create_info.enabledExtensionCount = enabled_extensions.len;
+    create_info.ppEnabledExtensionNames = enabled_extensions[0..].ptr;
+
+    if (enable_validation_layers) {
+        create_info.enabledLayerCount = validation_layers.len;
+        create_info.ppEnabledLayerNames = validation_layers[0..].ptr;
+    }
+
+    var logical_device: vulkan.VkDevice = undefined;
+    const result = vulkan.vkCreateDevice(physical_device, &create_info, null, &logical_device);
+    if (result != vulkan.VK_SUCCESS) {
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+            vulkan.VK_ERROR_INITIALIZATION_FAILED => return VulkanError.vk_error_initialization_failed,
+            vulkan.VK_ERROR_EXTENSION_NOT_PRESENT => return VulkanError.vk_error_extension_not_present,
+            vulkan.VK_ERROR_FEATURE_NOT_PRESENT => return VulkanError.vk_error_feature_not_present,
+            vulkan.VK_ERROR_TOO_MANY_OBJECTS => return VulkanError.vk_error_too_many_objects,
+            vulkan.VK_ERROR_DEVICE_LOST => return VulkanError.vk_error_device_lost,
+            else => unreachable,
+        }
+    }
+
+    return logical_device;
 }
 
 fn check_validation_layer_support(allocator_: std.mem.Allocator) VulkanError!bool {
