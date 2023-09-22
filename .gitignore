@@ -1,0 +1,4 @@
+.DS_STORE
+external/cglm-0.9.1/*
+zig-cache/
+zig-out/
