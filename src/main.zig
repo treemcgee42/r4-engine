@@ -1,41 +1,77 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
-const glfw = struct {
-    pub usingnamespace @cImport({
-        @cDefine("GLFW_INCLUDE_VULKAN", {});
-        @cInclude("GLFW/glfw3.h");
-    });
-};
+const glfw = @import("c.zig").glfw;
+const cglm = @import("c.zig").cglm;
 
-const cglm = struct {
-    pub usingnamespace @cImport({
-        @cInclude("cglm/cglm.h");
-        @cInclude("cglm/call.h");
-    });
+const VulkanSystem = @import("vulkan.zig");
+
+const WIDTH: u32 = 800;
+const HEIGHT: u32 = 600;
+
+pub const HelloTriangleApp = struct {
+    allocator: std.mem.Allocator,
+    window: *glfw.GLFWwindow,
+    vulkan_system: VulkanSystem,
+
+    pub const InitError = error{
+        glfw_init_failed,
+        glfw_create_window_failed,
+
+        vulkan_init_failed,
+    } || std.mem.Allocator.Error;
+
+    fn init_window() InitError!*glfw.GLFWwindow {
+        if (glfw.glfwInit() == 0) {
+            return InitError.glfw_init_failed;
+        }
+
+        glfw.glfwWindowHint(glfw.GLFW_CLIENT_API, glfw.GLFW_NO_API);
+
+        glfw.glfwWindowHint(glfw.GLFW_RESIZABLE, glfw.GLFW_FALSE);
+
+        const maybe_window = glfw.glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", null, null);
+        if (maybe_window == null) {
+            return InitError.glfw_create_window_failed;
+        }
+        return maybe_window.?;
+    }
+
+    pub fn init(allocator_: std.mem.Allocator) InitError!HelloTriangleApp {
+        const window = try init_window();
+        const vulkan_system = VulkanSystem.init(allocator_) catch {
+            return InitError.vulkan_init_failed;
+        };
+
+        return .{
+            .allocator = allocator_,
+            .window = window,
+            .vulkan_system = vulkan_system,
+        };
+    }
+
+    pub fn run(self: *HelloTriangleApp) !void {
+        while (glfw.glfwWindowShouldClose(self.window) == 0) {
+            glfw.glfwPollEvents();
+        }
+    }
+
+    fn deinit(self: *HelloTriangleApp) void {
+        self.vulkan_system.deinit();
+
+        glfw.glfwDestroyWindow(self.window);
+
+        glfw.glfwTerminate();
+    }
 };
 
 pub fn main() !void {
-    _ = glfw.glfwInit();
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
 
-    glfw.glfwWindowHint(glfw.GLFW_CLIENT_API, glfw.GLFW_NO_API);
-    glfw.glfwWindowHint(glfw.GLFW_CLIENT_API, glfw.GLFW_NO_API);
-    var window = glfw.glfwCreateWindow(800, 600, "Vulkan window", null, null);
+    var app = try HelloTriangleApp.init(allocator);
+    defer app.deinit();
 
-    var extensions_count: u32 = 0;
-    _ = glfw.vkEnumerateInstanceExtensionProperties(null, &extensions_count, null);
-
-    std.debug.print("extensions supported = {}\n", .{extensions_count});
-
-    var m1 = cglm.mat4{ cglm.vec4{ 1.0, 0.0, 0.0, 0.0 }, cglm.vec4{ 0.0, 1.0, 0.0, 0.0 }, cglm.vec4{ 0.0, 0.0, 1.0, 0.0 }, cglm.vec4{ 0.0, 0.0, 0.0, 1.0 } };
-    var m2 = cglm.mat4{ cglm.vec4{ 1.0, 0.0, 0.0, 0.0 }, cglm.vec4{ 0.0, 1.0, 0.0, 0.0 }, cglm.vec4{ 0.0, 0.0, 1.0, 0.0 }, cglm.vec4{ 0.0, 0.0, 0.0, 1.0 } };
-    var m3: cglm.mat4 = undefined;
-    cglm.glmc_mat4_mul(&m3, &m1, &m2);
-
-    while (glfw.glfwWindowShouldClose(window) == 0) {
-        glfw.glfwPollEvents();
-    }
-
-    glfw.glfwDestroyWindow(window);
-
-    glfw.glfwTerminate();
+    try app.run();
 }

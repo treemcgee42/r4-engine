@@ -37,14 +37,19 @@ pub fn build(b: *std.Build) void {
     exe.addIncludePath(.{ .path = "./external/cglm-0.9.1/include" });
 
     // VULKAN.
+    exe.linkLibCpp();
+    exe.linkFramework("Metal");
+    exe.linkFramework("Foundation");
+    exe.linkFramework("QuartzCore");
+    exe.linkFramework("IOKit");
+    exe.linkFramework("IOSurface");
+    exe.linkFramework("Cocoa");
+    exe.linkFramework("CoreVideo");
+
     exe.addLibraryPath(.{ .path = "/Users/ogmalladii/VulkanSDK/1.3.261.1/macOS/lib" });
     exe.linkSystemLibrary("vulkan.1");
     exe.linkSystemLibrary("vulkan.1.3.261");
     exe.addIncludePath(.{ .path = "/Users/ogmalladii/VulkanSDK/1.3.261.1/macOS/include" });
-
-    exe.defineCMacro("GLFW_INCLUDE_VULKAN", null);
-    exe.defineCMacro("GLM_FORCE_RADIANS", null);
-    exe.defineCMacro("GLM_FORCE_DEPTH_ZERO_TO_ONE", null);
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
