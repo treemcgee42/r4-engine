@@ -13,15 +13,19 @@ allocator: std.mem.Allocator,
 instance: vulkan.VkInstance,
 debug_messenger: ?DebugMessenger,
 
+surface: vulkan.VkSurfaceKHR,
+
 physical_device: vulkan.VkPhysicalDevice,
 logical_device: vulkan.VkDevice,
 
 graphics_queue: vulkan.VkQueue,
+present_queue: vulkan.VkQueue,
 
 pub const VulkanError = error{
     validation_layer_not_present,
     instance_init_failed,
     no_suitable_gpu,
+    surface_creation_failed,
 
     vk_error_out_of_host_memory,
     vk_error_out_of_device_memory,
@@ -31,6 +35,7 @@ pub const VulkanError = error{
     vk_error_feature_not_present,
     vk_error_too_many_objects,
     vk_error_device_lost,
+    vk_error_surface_lost_khr,
 } || std.mem.Allocator.Error;
 
 const enable_validation_layers = (builtin.mode == .Debug);
@@ -38,18 +43,23 @@ const validation_layers = [_][*c]const u8{
     "VK_LAYER_KHRONOS_validation",
 };
 
-pub fn init(allocator_: std.mem.Allocator) VulkanError!VulkanSystem {
+pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError!VulkanSystem {
     const instance = try create_vulkan_instance(allocator_);
     var debug_messenger: ?DebugMessenger = null;
     if (enable_validation_layers) {
         debug_messenger = try DebugMessenger.init(instance);
     }
-    const physical_device = try pick_physical_device(instance, allocator_);
-    const logical_device = try create_logical_device(physical_device, allocator_);
 
-    const queue_family_indices = try find_queue_families(physical_device, allocator_);
+    const surface = try create_surface(instance, window);
+
+    const physical_device = try pick_physical_device(instance, allocator_, surface);
+    const logical_device = try create_logical_device(physical_device, allocator_, surface);
+
+    const queue_family_indices = try find_queue_families(physical_device, allocator_, surface);
     var graphics_queue: vulkan.VkQueue = undefined;
     vulkan.vkGetDeviceQueue(logical_device, queue_family_indices.graphics_family.?, 0, &graphics_queue);
+    var present_queue: vulkan.VkQueue = undefined;
+    vulkan.vkGetDeviceQueue(logical_device, queue_family_indices.present_family.?, 0, &present_queue);
 
     return VulkanSystem{
         .allocator = allocator_,
@@ -57,10 +67,13 @@ pub fn init(allocator_: std.mem.Allocator) VulkanError!VulkanSystem {
         .instance = instance,
         .debug_messenger = debug_messenger,
 
+        .surface = surface,
+
         .physical_device = physical_device,
         .logical_device = logical_device,
 
         .graphics_queue = graphics_queue,
+        .present_queue = present_queue,
     };
 }
 
@@ -71,6 +84,7 @@ pub fn deinit(self: *VulkanSystem) void {
         self.debug_messenger.?.deinit();
     }
 
+    vulkan.vkDestroySurfaceKHR(self.instance, self.surface, null);
     vulkan.vkDestroyInstance(self.instance, null);
 }
 
@@ -162,21 +176,34 @@ fn create_vulkan_instance(allocator_: std.mem.Allocator) VulkanError!vulkan.VkIn
     return vk_instance;
 }
 
+fn create_surface(instance: vulkan.VkInstance, window: *glfw.GLFWwindow) VulkanError!vulkan.VkSurfaceKHR {
+    var surface: vulkan.VkSurfaceKHR = null;
+
+    const result = glfw.glfwCreateWindowSurface(@ptrCast(instance), window, null, @ptrCast(&surface));
+    if (result != vulkan.VK_SUCCESS) {
+        return VulkanError.surface_creation_failed;
+    }
+
+    return surface;
+}
+
 const QueueFamilyIndices = struct {
     graphics_family: ?u32,
+    present_family: ?u32,
 
     fn init_null() QueueFamilyIndices {
         return .{
             .graphics_family = null,
+            .present_family = null,
         };
     }
 
     fn is_complete(self: *const QueueFamilyIndices) bool {
-        return self.graphics_family != null;
+        return (self.graphics_family != null and self.present_family != null);
     }
 };
 
-fn find_queue_families(physical_device: vulkan.VkPhysicalDevice, allocator_: std.mem.Allocator) std.mem.Allocator.Error!QueueFamilyIndices {
+fn find_queue_families(physical_device: vulkan.VkPhysicalDevice, allocator_: std.mem.Allocator, surface: vulkan.VkSurfaceKHR) VulkanError!QueueFamilyIndices {
     var indices = QueueFamilyIndices.init_null();
 
     var queue_family_count: u32 = 0;
@@ -194,18 +221,33 @@ fn find_queue_families(physical_device: vulkan.VkPhysicalDevice, allocator_: std
         if (queue_family.queueFlags & vulkan.VK_QUEUE_GRAPHICS_BIT != 0) {
             indices.graphics_family = i;
         }
+
+        var present_support = vulkan.VK_FALSE;
+        const result = vulkan.vkGetPhysicalDeviceSurfaceSupportKHR(physical_device, i, surface, &present_support);
+        if (result != vulkan.VK_SUCCESS) {
+            switch (result) {
+                vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+                vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+                vulkan.VK_ERROR_SURFACE_LOST_KHR => return VulkanError.vk_error_surface_lost_khr,
+                else => unreachable,
+            }
+        }
+
+        if (present_support == vulkan.VK_TRUE) {
+            indices.present_family = i;
+        }
     }
 
     return indices;
 }
 
-fn is_device_suitable(device: vulkan.VkPhysicalDevice, allocator_: std.mem.Allocator) std.mem.Allocator.Error!bool {
-    const indices = try find_queue_families(device, allocator_);
+fn is_device_suitable(device: vulkan.VkPhysicalDevice, allocator_: std.mem.Allocator, surface: vulkan.VkSurfaceKHR) VulkanError!bool {
+    const indices = try find_queue_families(device, allocator_, surface);
 
     return indices.is_complete();
 }
 
-fn pick_physical_device(instance: vulkan.VkInstance, allocator_: std.mem.Allocator) VulkanError!vulkan.VkPhysicalDevice {
+fn pick_physical_device(instance: vulkan.VkInstance, allocator_: std.mem.Allocator, surface: vulkan.VkSurfaceKHR) VulkanError!vulkan.VkPhysicalDevice {
     var device_count: u32 = 0;
     var result = vulkan.vkEnumeratePhysicalDevices(instance, &device_count, null);
     if (result != vulkan.VK_SUCCESS) {
@@ -239,7 +281,7 @@ fn pick_physical_device(instance: vulkan.VkInstance, allocator_: std.mem.Allocat
         var device_was_selected = false;
 
         if (selected_device == null) {
-            const suitable = try is_device_suitable(device, allocator_);
+            const suitable = try is_device_suitable(device, allocator_, surface);
             if (suitable) {
                 selected_device = device;
                 device_was_selected = true;
@@ -260,18 +302,42 @@ fn pick_physical_device(instance: vulkan.VkInstance, allocator_: std.mem.Allocat
     return selected_device.?;
 }
 
-fn create_logical_device(physical_device: vulkan.VkPhysicalDevice, allocator_: std.mem.Allocator) VulkanError!vulkan.VkDevice {
-    const queue_family_indices = try find_queue_families(physical_device, allocator_);
+fn create_logical_device(physical_device: vulkan.VkPhysicalDevice, allocator_: std.mem.Allocator, surface: vulkan.VkSurfaceKHR) VulkanError!vulkan.VkDevice {
+    const queue_family_indices = try find_queue_families(physical_device, allocator_, surface);
+
+    var queue_create_infos = std.ArrayList(vulkan.VkDeviceQueueCreateInfo).init(allocator_);
+    defer queue_create_infos.deinit();
+    var unique_queue_families = std.ArrayList(u32).init(allocator_);
+    defer unique_queue_families.deinit();
+    const indices = [_]u32{ queue_family_indices.graphics_family.?, queue_family_indices.present_family.? };
+    for (indices) |index| {
+        var should_insert = true;
+
+        var i: usize = 0;
+        while (i < unique_queue_families.items.len) : (i += 1) {
+            if (unique_queue_families.items[i] == index) {
+                should_insert = false;
+            }
+        }
+
+        if (should_insert) {
+            try unique_queue_families.append(index);
+        }
+    }
 
     const queue_priority: f32 = 1.0;
-    var queue_create_info: vulkan.VkDeviceQueueCreateInfo = .{
-        .sType = vulkan.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-        .queueFamilyIndex = queue_family_indices.graphics_family.?,
-        .queueCount = 1,
-        .pQueuePriorities = &queue_priority,
-        .pNext = null,
-        .flags = 0,
-    };
+    for (unique_queue_families.items) |queue_family| {
+        var queue_create_info: vulkan.VkDeviceQueueCreateInfo = .{
+            .sType = vulkan.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+            .queueFamilyIndex = queue_family,
+            .queueCount = 1,
+            .pQueuePriorities = &queue_priority,
+            .pNext = null,
+            .flags = 0,
+        };
+
+        try queue_create_infos.append(queue_create_info);
+    }
 
     const device_features: vulkan.VkPhysicalDeviceFeatures = .{
         .robustBufferAccess = vulkan.VK_FALSE,
@@ -333,8 +399,8 @@ fn create_logical_device(physical_device: vulkan.VkPhysicalDevice, allocator_: s
 
     var create_info: vulkan.VkDeviceCreateInfo = .{
         .sType = vulkan.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-        .pQueueCreateInfos = &queue_create_info,
-        .queueCreateInfoCount = 1,
+        .queueCreateInfoCount = @intCast(queue_create_infos.items.len),
+        .pQueueCreateInfos = queue_create_infos.items.ptr,
         .pEnabledFeatures = &device_features,
         .pNext = null,
         .flags = 0,

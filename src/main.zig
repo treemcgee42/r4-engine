@@ -39,7 +39,7 @@ pub const HelloTriangleApp = struct {
 
     pub fn init(allocator_: std.mem.Allocator) InitError!HelloTriangleApp {
         const window = try init_window();
-        const vulkan_system = VulkanSystem.init(allocator_) catch {
+        const vulkan_system = VulkanSystem.init(allocator_, window) catch {
             return InitError.vulkan_init_failed;
         };
 
