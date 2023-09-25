@@ -21,6 +21,8 @@ logical_device: vulkan.VkDevice,
 graphics_queue: vulkan.VkQueue,
 present_queue: vulkan.VkQueue,
 
+swapchain: vulkan.VkSwapchainKHR,
+
 pub const VulkanError = error{
     validation_layer_not_present,
     instance_init_failed,
@@ -36,12 +38,16 @@ pub const VulkanError = error{
     vk_error_too_many_objects,
     vk_error_device_lost,
     vk_error_surface_lost_khr,
+    vk_error_native_window_in_use_khr,
+    vk_error_compression_exhausted_ext,
 } || std.mem.Allocator.Error;
 
 const enable_validation_layers = (builtin.mode == .Debug);
 const validation_layers = [_][*c]const u8{
     "VK_LAYER_KHRONOS_validation",
 };
+
+const device_extensions = [_][*c]const u8{ vulkan.VK_KHR_SWAPCHAIN_EXTENSION_NAME, "VK_KHR_portability_subset" };
 
 pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError!VulkanSystem {
     const instance = try create_vulkan_instance(allocator_);
@@ -61,6 +67,8 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
     var present_queue: vulkan.VkQueue = undefined;
     vulkan.vkGetDeviceQueue(logical_device, queue_family_indices.present_family.?, 0, &present_queue);
 
+    const swapchain = try create_swapchain(allocator_, physical_device, logical_device, surface);
+
     return VulkanSystem{
         .allocator = allocator_,
 
@@ -74,10 +82,14 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
 
         .graphics_queue = graphics_queue,
         .present_queue = present_queue,
+
+        .swapchain = swapchain,
     };
 }
 
 pub fn deinit(self: *VulkanSystem) void {
+    vulkan.vkDestroySwapchainKHR(self.logical_device, self.swapchain, null);
+
     vulkan.vkDestroyDevice(self.logical_device, null);
 
     if (enable_validation_layers) {
@@ -244,7 +256,61 @@ fn find_queue_families(physical_device: vulkan.VkPhysicalDevice, allocator_: std
 fn is_device_suitable(device: vulkan.VkPhysicalDevice, allocator_: std.mem.Allocator, surface: vulkan.VkSurfaceKHR) VulkanError!bool {
     const indices = try find_queue_families(device, allocator_, surface);
 
-    return indices.is_complete();
+    const extensions_supported = try check_device_extension_support(device, allocator_);
+
+    var swapchain_supported = false;
+    if (extensions_supported) {
+        const swapchain_support = try query_swapchain_support(allocator_, device, surface);
+        defer swapchain_support.formats.deinit();
+        defer swapchain_support.present_modes.deinit();
+        swapchain_supported = swapchain_support.formats.items.len > 0 and swapchain_support.present_modes.items.len > 0;
+    }
+
+    return indices.is_complete() and extensions_supported and swapchain_supported;
+}
+
+fn check_device_extension_support(device: vulkan.VkPhysicalDevice, allocator_: std.mem.Allocator) VulkanError!bool {
+    var extension_count: u32 = 0;
+    var result = vulkan.vkEnumerateDeviceExtensionProperties(device, null, &extension_count, null);
+    if (result != vulkan.VK_SUCCESS) {
+        unreachable;
+    }
+
+    var available_extensions = try allocator_.alloc(vulkan.VkExtensionProperties, extension_count);
+    defer allocator_.free(available_extensions);
+    result = vulkan.vkEnumerateDeviceExtensionProperties(device, null, &extension_count, available_extensions.ptr);
+    if (result != vulkan.VK_SUCCESS) {
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+            vulkan.VK_ERROR_INITIALIZATION_FAILED => return VulkanError.vk_error_initialization_failed,
+            else => unreachable,
+        }
+    }
+
+    var found_exensions: usize = 0;
+    for (device_extensions) |extension| {
+        var found = false;
+        for (available_extensions) |available_extension| {
+            // Manual strcmp.
+            var i: usize = 0;
+            while (true) : (i += 1) {
+                if (available_extension.extensionName[i] == 0 or i >= vulkan.VK_MAX_EXTENSION_NAME_SIZE) {
+                    found = true;
+                }
+
+                if (available_extension.extensionName[i] != extension[i]) {
+                    break;
+                }
+            }
+        }
+
+        if (found) {
+            found_exensions += 1;
+        }
+    }
+
+    return found_exensions == device_extensions.len;
 }
 
 fn pick_physical_device(instance: vulkan.VkInstance, allocator_: std.mem.Allocator, surface: vulkan.VkSurfaceKHR) VulkanError!vulkan.VkPhysicalDevice {
@@ -408,13 +474,9 @@ fn create_logical_device(physical_device: vulkan.VkPhysicalDevice, allocator_: s
         // To be changed.
         .enabledLayerCount = 0,
         .ppEnabledLayerNames = null,
-        .enabledExtensionCount = 0,
-        .ppEnabledExtensionNames = null,
+        .enabledExtensionCount = @intCast(device_extensions.len),
+        .ppEnabledExtensionNames = device_extensions[0..].ptr,
     };
-
-    var enabled_extensions = [_][*:0]const u8{"VK_KHR_portability_subset"};
-    create_info.enabledExtensionCount = enabled_extensions.len;
-    create_info.ppEnabledExtensionNames = enabled_extensions[0..].ptr;
 
     if (enable_validation_layers) {
         create_info.enabledLayerCount = validation_layers.len;
@@ -506,4 +568,178 @@ fn get_required_extensions(allocator_: std.mem.Allocator) VulkanError!std.ArrayL
     try extensions.append(vulkan.VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
 
     return extensions;
+}
+
+const swapchain_support_details = struct {
+    capabilities: vulkan.VkSurfaceCapabilitiesKHR,
+    formats: std.ArrayList(vulkan.VkSurfaceFormatKHR),
+    present_modes: std.ArrayList(vulkan.VkPresentModeKHR),
+};
+
+fn query_swapchain_support(allocator_: std.mem.Allocator, physical_device: vulkan.VkPhysicalDevice, surface: vulkan.VkSurfaceKHR) VulkanError!swapchain_support_details {
+    var capabilities: vulkan.VkSurfaceCapabilitiesKHR = undefined;
+    var formats = std.ArrayList(vulkan.VkSurfaceFormatKHR).init(allocator_);
+    var present_modes = std.ArrayList(vulkan.VkPresentModeKHR).init(allocator_);
+
+    var result = vulkan.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface, &capabilities);
+    if (result != vulkan.VK_SUCCESS) {
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+            vulkan.VK_ERROR_SURFACE_LOST_KHR => return VulkanError.vk_error_surface_lost_khr,
+            else => unreachable,
+        }
+    }
+
+    // --- Format modes.
+
+    var format_count: u32 = undefined;
+    result = vulkan.vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, &format_count, null);
+    if (result != vulkan.VK_SUCCESS) {
+        unreachable;
+    }
+    if (format_count != 0) {
+        try formats.resize(format_count);
+        result = vulkan.vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, &format_count, formats.items.ptr);
+        if (result != vulkan.VK_SUCCESS) {
+            switch (result) {
+                vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+                vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+                vulkan.VK_ERROR_SURFACE_LOST_KHR => return VulkanError.vk_error_surface_lost_khr,
+                else => unreachable,
+            }
+        }
+    }
+
+    // --- Present modes.
+
+    var present_mode_count: u32 = undefined;
+    result = vulkan.vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, surface, &present_mode_count, null);
+    if (result != vulkan.VK_SUCCESS) {
+        unreachable;
+    }
+    if (present_mode_count != 0) {
+        try present_modes.resize(present_mode_count);
+        result = vulkan.vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, surface, &present_mode_count, present_modes.items.ptr);
+        if (result != vulkan.VK_SUCCESS) {
+            switch (result) {
+                vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+                vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+                vulkan.VK_ERROR_SURFACE_LOST_KHR => return VulkanError.vk_error_surface_lost_khr,
+                else => unreachable,
+            }
+        }
+    }
+
+    return .{
+        .capabilities = capabilities,
+        .formats = formats,
+        .present_modes = present_modes,
+    };
+}
+
+fn choose_swap_surface_format(available_formats: []const vulkan.VkSurfaceFormatKHR) vulkan.VkSurfaceFormatKHR {
+    for (available_formats) |available_format| {
+        if (available_format.format == vulkan.VK_FORMAT_B8G8R8A8_SRGB and available_format.colorSpace == vulkan.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+            return available_format;
+        }
+    }
+
+    return available_formats[0];
+}
+
+fn choose_swap_chain_present_mode(available_present_modes: []const vulkan.VkPresentModeKHR) vulkan.VkPresentModeKHR {
+    for (available_present_modes) |available_present_mode| {
+        if (available_present_mode == vulkan.VK_PRESENT_MODE_MAILBOX_KHR) {
+            return available_present_mode;
+        }
+    }
+
+    return vulkan.VK_PRESENT_MODE_FIFO_KHR;
+}
+
+fn choose_swap_extent(capabilities: vulkan.VkSurfaceCapabilitiesKHR) vulkan.VkExtent2D {
+    if (capabilities.currentExtent.width != std.math.maxInt(u32)) {
+        return capabilities.currentExtent;
+    } else {
+        const width = @as(u32, @intCast(glfw.glfwGetVideoMode(glfw.glfwGetPrimaryMonitor()).*.width));
+        const height = @as(u32, @intCast(glfw.glfwGetVideoMode(glfw.glfwGetPrimaryMonitor()).*.height));
+
+        var actual_extent = vulkan.VkExtent2D{
+            .width = width,
+            .height = height,
+        };
+
+        actual_extent.width = std.math.clamp(actual_extent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
+        actual_extent.height = std.math.clamp(actual_extent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
+
+        return actual_extent;
+    }
+}
+
+fn create_swapchain(allocator_: std.mem.Allocator, physcial_device: vulkan.VkPhysicalDevice, logical_device: vulkan.VkDevice, surface: vulkan.VkSurfaceKHR) VulkanError!vulkan.VkSwapchainKHR {
+    const swap_chain_support = try query_swapchain_support(allocator_, physcial_device, surface);
+    defer swap_chain_support.formats.deinit();
+    defer swap_chain_support.present_modes.deinit();
+
+    const surface_format = choose_swap_surface_format(swap_chain_support.formats.items);
+    const present_mode = choose_swap_chain_present_mode(swap_chain_support.present_modes.items);
+    const extent = choose_swap_extent(swap_chain_support.capabilities);
+
+    var image_count: u32 = swap_chain_support.capabilities.minImageCount + 1;
+    if (swap_chain_support.capabilities.maxImageCount > 0 and image_count > swap_chain_support.capabilities.maxImageCount) {
+        image_count = swap_chain_support.capabilities.maxImageCount;
+    }
+
+    var image_sharing_mode: vulkan.VkSharingMode = undefined;
+    var queue_family_index_count: u32 = undefined;
+    const indices = try find_queue_families(physcial_device, allocator_, surface);
+    const queue_family_indices = [_]u32{ indices.graphics_family.?, indices.present_family.? };
+    const p_queue_family_indices: [*c]const u32 = queue_family_indices[0..].ptr;
+    if (indices.graphics_family != indices.present_family) {
+        image_sharing_mode = vulkan.VK_SHARING_MODE_CONCURRENT;
+        queue_family_index_count = 2;
+    } else {
+        image_sharing_mode = vulkan.VK_SHARING_MODE_EXCLUSIVE;
+        queue_family_index_count = 0;
+    }
+
+    var create_info: vulkan.VkSwapchainCreateInfoKHR = .{
+        .sType = vulkan.VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+        .surface = surface,
+        .minImageCount = image_count,
+        .imageFormat = surface_format.format,
+        .imageColorSpace = surface_format.colorSpace,
+        .imageExtent = extent,
+        .imageArrayLayers = 1,
+        .imageUsage = vulkan.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+
+        .imageSharingMode = image_sharing_mode,
+        .queueFamilyIndexCount = queue_family_index_count,
+        .pQueueFamilyIndices = p_queue_family_indices,
+        .preTransform = swap_chain_support.capabilities.currentTransform,
+        .compositeAlpha = vulkan.VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+        .presentMode = present_mode,
+        .clipped = vulkan.VK_TRUE,
+        .oldSwapchain = @ptrCast(vulkan.VK_NULL_HANDLE),
+        .pNext = null,
+        .flags = 0,
+    };
+
+    var swapchain: vulkan.VkSwapchainKHR = undefined;
+    const result = vulkan.vkCreateSwapchainKHR(logical_device, &create_info, null, &swapchain);
+    if (result != vulkan.VK_SUCCESS) {
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+            vulkan.VK_ERROR_DEVICE_LOST => return VulkanError.vk_error_device_lost,
+            vulkan.VK_ERROR_SURFACE_LOST_KHR => return VulkanError.vk_error_surface_lost_khr,
+            vulkan.VK_ERROR_NATIVE_WINDOW_IN_USE_KHR => return VulkanError.vk_error_native_window_in_use_khr,
+            vulkan.VK_ERROR_INITIALIZATION_FAILED => return VulkanError.vk_error_initialization_failed,
+            vulkan.VK_ERROR_COMPRESSION_EXHAUSTED_EXT => return VulkanError.vk_error_compression_exhausted_ext,
+            else => unreachable,
+        }
+    }
+
+    return swapchain;
 }
