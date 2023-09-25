@@ -4,7 +4,7 @@ const builtin = @import("builtin");
 const glfw = @import("c.zig").glfw;
 const cglm = @import("c.zig").cglm;
 
-const VulkanSystem = @import("vulkan.zig");
+const VulkanSystem = @import("vulkan/vulkan.zig");
 
 const WIDTH: u32 = 800;
 const HEIGHT: u32 = 600;

@@ -1,7 +1,7 @@
 const std = @import("std");
-const vulkan = @import("c.zig").vulkan;
+const vulkan = @import("../c.zig").vulkan;
 
-const VulkanError = @import("vulkan.zig").VulkanError;
+const VulkanError = @import("./vulkan.zig").VulkanError;
 
 const DebugMessenger = @This();
 
