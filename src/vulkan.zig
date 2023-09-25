@@ -22,6 +22,9 @@ graphics_queue: vulkan.VkQueue,
 present_queue: vulkan.VkQueue,
 
 swapchain: vulkan.VkSwapchainKHR,
+swapchain_images: []vulkan.VkImage,
+swapchain_image_format: vulkan.VkFormat,
+swapchain_extent: vulkan.VkExtent2D,
 
 pub const VulkanError = error{
     validation_layer_not_present,
@@ -67,7 +70,7 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
     var present_queue: vulkan.VkQueue = undefined;
     vulkan.vkGetDeviceQueue(logical_device, queue_family_indices.present_family.?, 0, &present_queue);
 
-    const swapchain = try create_swapchain(allocator_, physical_device, logical_device, surface);
+    const swapchain_info = try create_swapchain(allocator_, physical_device, logical_device, surface);
 
     return VulkanSystem{
         .allocator = allocator_,
@@ -83,11 +86,15 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
         .graphics_queue = graphics_queue,
         .present_queue = present_queue,
 
-        .swapchain = swapchain,
+        .swapchain = swapchain_info.swapchain,
+        .swapchain_images = swapchain_info.images,
+        .swapchain_image_format = swapchain_info.image_format,
+        .swapchain_extent = swapchain_info.extent,
     };
 }
 
 pub fn deinit(self: *VulkanSystem) void {
+    self.allocator.free(self.swapchain_images);
     vulkan.vkDestroySwapchainKHR(self.logical_device, self.swapchain, null);
 
     vulkan.vkDestroyDevice(self.logical_device, null);
@@ -677,7 +684,14 @@ fn choose_swap_extent(capabilities: vulkan.VkSurfaceCapabilitiesKHR) vulkan.VkEx
     }
 }
 
-fn create_swapchain(allocator_: std.mem.Allocator, physcial_device: vulkan.VkPhysicalDevice, logical_device: vulkan.VkDevice, surface: vulkan.VkSurfaceKHR) VulkanError!vulkan.VkSwapchainKHR {
+const CreateSwapchainReturnType = struct {
+    swapchain: vulkan.VkSwapchainKHR,
+    images: []vulkan.VkImage,
+    image_format: vulkan.VkFormat,
+    extent: vulkan.VkExtent2D,
+};
+
+fn create_swapchain(allocator_: std.mem.Allocator, physcial_device: vulkan.VkPhysicalDevice, logical_device: vulkan.VkDevice, surface: vulkan.VkSurfaceKHR) VulkanError!CreateSwapchainReturnType {
     const swap_chain_support = try query_swapchain_support(allocator_, physcial_device, surface);
     defer swap_chain_support.formats.deinit();
     defer swap_chain_support.present_modes.deinit();
@@ -727,7 +741,7 @@ fn create_swapchain(allocator_: std.mem.Allocator, physcial_device: vulkan.VkPhy
     };
 
     var swapchain: vulkan.VkSwapchainKHR = undefined;
-    const result = vulkan.vkCreateSwapchainKHR(logical_device, &create_info, null, &swapchain);
+    var result = vulkan.vkCreateSwapchainKHR(logical_device, &create_info, null, &swapchain);
     if (result != vulkan.VK_SUCCESS) {
         switch (result) {
             vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
@@ -741,5 +755,24 @@ fn create_swapchain(allocator_: std.mem.Allocator, physcial_device: vulkan.VkPhy
         }
     }
 
-    return swapchain;
+    result = vulkan.vkGetSwapchainImagesKHR(logical_device, swapchain, &image_count, null);
+    if (result != vulkan.VK_SUCCESS) {
+        unreachable;
+    }
+    var swapchain_images = try allocator_.alloc(vulkan.VkImage, image_count);
+    result = vulkan.vkGetSwapchainImagesKHR(logical_device, swapchain, &image_count, swapchain_images.ptr);
+    if (result != vulkan.VK_SUCCESS) {
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+            else => unreachable,
+        }
+    }
+
+    return .{
+        .swapchain = swapchain,
+        .images = swapchain_images,
+        .image_format = surface_format.format,
+        .extent = extent,
+    };
 }
