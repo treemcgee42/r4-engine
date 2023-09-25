@@ -25,6 +25,7 @@ swapchain: vulkan.VkSwapchainKHR,
 swapchain_images: []vulkan.VkImage,
 swapchain_image_format: vulkan.VkFormat,
 swapchain_extent: vulkan.VkExtent2D,
+swapchain_image_views: []vulkan.VkImageView,
 
 pub const VulkanError = error{
     validation_layer_not_present,
@@ -43,6 +44,7 @@ pub const VulkanError = error{
     vk_error_surface_lost_khr,
     vk_error_native_window_in_use_khr,
     vk_error_compression_exhausted_ext,
+    vk_error_invalid_opaque_capture_address_khr,
 } || std.mem.Allocator.Error;
 
 const enable_validation_layers = (builtin.mode == .Debug);
@@ -71,6 +73,7 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
     vulkan.vkGetDeviceQueue(logical_device, queue_family_indices.present_family.?, 0, &present_queue);
 
     const swapchain_info = try create_swapchain(allocator_, physical_device, logical_device, surface);
+    const swapchain_image_views = try create_image_views(allocator_, logical_device, swapchain_info.images, swapchain_info.image_format);
 
     return VulkanSystem{
         .allocator = allocator_,
@@ -90,10 +93,16 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
         .swapchain_images = swapchain_info.images,
         .swapchain_image_format = swapchain_info.image_format,
         .swapchain_extent = swapchain_info.extent,
+        .swapchain_image_views = swapchain_image_views,
     };
 }
 
 pub fn deinit(self: *VulkanSystem) void {
+    var i: usize = 0;
+    while (i < self.swapchain_image_views.len) : (i += 1) {
+        vulkan.vkDestroyImageView(self.logical_device, self.swapchain_image_views[i], null);
+    }
+    self.allocator.free(self.swapchain_image_views);
     self.allocator.free(self.swapchain_images);
     vulkan.vkDestroySwapchainKHR(self.logical_device, self.swapchain, null);
 
@@ -775,4 +784,47 @@ fn create_swapchain(allocator_: std.mem.Allocator, physcial_device: vulkan.VkPhy
         .image_format = surface_format.format,
         .extent = extent,
     };
+}
+
+fn create_image_views(allocator: std.mem.Allocator, logical_device: vulkan.VkDevice, images: []vulkan.VkImage, image_format: vulkan.VkFormat) VulkanError![]vulkan.VkImageView {
+    var image_views = try allocator.alloc(vulkan.VkImageView, images.len);
+    errdefer allocator.free(image_views);
+
+    var i: usize = 0;
+    var create_info: vulkan.VkImageViewCreateInfo = undefined;
+    while (i < images.len) : (i += 1) {
+        create_info = .{
+            .sType = vulkan.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+            .image = images[i],
+            .viewType = vulkan.VK_IMAGE_VIEW_TYPE_2D,
+            .format = image_format,
+            .components = .{
+                .r = vulkan.VK_COMPONENT_SWIZZLE_IDENTITY,
+                .g = vulkan.VK_COMPONENT_SWIZZLE_IDENTITY,
+                .b = vulkan.VK_COMPONENT_SWIZZLE_IDENTITY,
+                .a = vulkan.VK_COMPONENT_SWIZZLE_IDENTITY,
+            },
+            .subresourceRange = .{
+                .aspectMask = vulkan.VK_IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            },
+            .pNext = null,
+            .flags = 0,
+        };
+
+        var result = vulkan.vkCreateImageView(logical_device, &create_info, null, &image_views[i]);
+        if (result != vulkan.VK_SUCCESS) {
+            switch (result) {
+                vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+                vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+                vulkan.VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS_KHR => return VulkanError.vk_error_invalid_opaque_capture_address_khr,
+                else => unreachable,
+            }
+        }
+    }
+
+    return image_views;
 }
