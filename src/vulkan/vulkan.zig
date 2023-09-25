@@ -6,6 +6,7 @@ const glfw = @import("../c.zig").glfw;
 
 const DebugMessenger = @import("./debug.zig");
 const Swapchain = @import("./swapchain.zig");
+const GraphicsPipeline = @import("./graphics_pipeline.zig");
 
 const VulkanSystem = @This();
 
@@ -23,12 +24,15 @@ graphics_queue: vulkan.VkQueue,
 present_queue: vulkan.VkQueue,
 
 swapchain: Swapchain,
+graphics_pipeline: GraphicsPipeline,
 
 pub const VulkanError = error{
     validation_layer_not_present,
     instance_init_failed,
     no_suitable_gpu,
     surface_creation_failed,
+    file_not_found,
+    file_loading_failed,
 
     vk_error_out_of_host_memory,
     vk_error_out_of_device_memory,
@@ -42,6 +46,7 @@ pub const VulkanError = error{
     vk_error_native_window_in_use_khr,
     vk_error_compression_exhausted_ext,
     vk_error_invalid_opaque_capture_address_khr,
+    vk_error_invalid_shader_nv,
 } || std.mem.Allocator.Error;
 
 const enable_validation_layers = (builtin.mode == .Debug);
@@ -71,6 +76,8 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
 
     const swapchain = try Swapchain.init(allocator_, physical_device, logical_device, surface);
 
+    const graphics_pipeline = try GraphicsPipeline.init(allocator_, logical_device);
+
     return VulkanSystem{
         .allocator = allocator_,
 
@@ -86,6 +93,7 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
         .present_queue = present_queue,
 
         .swapchain = swapchain,
+        .graphics_pipeline = graphics_pipeline,
     };
 }
 

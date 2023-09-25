@@ -2,3 +2,5 @@
 external/cglm-0.9.1/*
 zig-cache/
 zig-out/
+.task/
+shaders/compiled_output/*
