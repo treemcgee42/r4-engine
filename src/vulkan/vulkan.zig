@@ -24,6 +24,7 @@ graphics_queue: vulkan.VkQueue,
 present_queue: vulkan.VkQueue,
 
 swapchain: Swapchain,
+render_pass: vulkan.VkRenderPass,
 graphics_pipeline: GraphicsPipeline,
 
 pub const VulkanError = error{
@@ -76,6 +77,7 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
 
     const swapchain = try Swapchain.init(allocator_, physical_device, logical_device, surface);
 
+    const render_pass = try create_render_pass(logical_device, swapchain.swapchain_image_format);
     const graphics_pipeline = try GraphicsPipeline.init(allocator_, logical_device, &swapchain);
 
     return VulkanSystem{
@@ -93,12 +95,14 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
         .present_queue = present_queue,
 
         .swapchain = swapchain,
+        .render_pass = render_pass,
         .graphics_pipeline = graphics_pipeline,
     };
 }
 
 pub fn deinit(self: *VulkanSystem) void {
     self.graphics_pipeline.deinit();
+    vulkan.vkDestroyRenderPass(self.logical_device, self.render_pass, null);
     self.swapchain.deinit();
 
     vulkan.vkDestroyDevice(self.logical_device, null);
@@ -579,4 +583,67 @@ fn get_required_extensions(allocator_: std.mem.Allocator) VulkanError!std.ArrayL
     try extensions.append(vulkan.VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
 
     return extensions;
+}
+
+fn create_render_pass(device: vulkan.VkDevice, swap_chain_image_format: vulkan.VkFormat) VulkanError!vulkan.VkRenderPass {
+    const color_attachment = vulkan.VkAttachmentDescription{
+        .format = swap_chain_image_format,
+        .samples = vulkan.VK_SAMPLE_COUNT_1_BIT,
+        .loadOp = vulkan.VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp = vulkan.VK_ATTACHMENT_STORE_OP_STORE,
+        .stencilLoadOp = vulkan.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+        .stencilStoreOp = vulkan.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        .initialLayout = vulkan.VK_IMAGE_LAYOUT_UNDEFINED,
+        .finalLayout = vulkan.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+
+        .flags = 0,
+    };
+
+    // --- Subpass.
+
+    const color_attachment_ref = vulkan.VkAttachmentReference{
+        .attachment = 0,
+        .layout = vulkan.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+    };
+
+    const subpass = vulkan.VkSubpassDescription{
+        .pipelineBindPoint = vulkan.VK_PIPELINE_BIND_POINT_GRAPHICS,
+        .colorAttachmentCount = 1,
+        .pColorAttachments = &color_attachment_ref,
+
+        .flags = 0,
+        .inputAttachmentCount = 0,
+        .pInputAttachments = null,
+        .pResolveAttachments = null,
+        .pDepthStencilAttachment = null,
+        .preserveAttachmentCount = 0,
+        .pPreserveAttachments = null,
+    };
+
+    // ---
+
+    const render_pass_info = vulkan.VkRenderPassCreateInfo{
+        .sType = vulkan.VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+        .attachmentCount = 1,
+        .pAttachments = &color_attachment,
+        .subpassCount = 1,
+        .pSubpasses = &subpass,
+
+        .dependencyCount = 0,
+        .pDependencies = null,
+        .flags = 0,
+        .pNext = null,
+    };
+
+    var render_pass: vulkan.VkRenderPass = undefined;
+    const result = vulkan.vkCreateRenderPass(device, &render_pass_info, null, &render_pass);
+    if (result != vulkan.VK_SUCCESS) {
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+            else => unreachable,
+        }
+    }
+
+    return render_pass;
 }
