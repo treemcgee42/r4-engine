@@ -26,6 +26,7 @@ present_queue: vulkan.VkQueue,
 swapchain: Swapchain,
 render_pass: vulkan.VkRenderPass,
 graphics_pipeline: GraphicsPipeline,
+swapchain_framebuffers: []vulkan.VkFramebuffer,
 
 pub const VulkanError = error{
     validation_layer_not_present,
@@ -80,6 +81,8 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
     const render_pass = try create_render_pass(logical_device, swapchain.swapchain_image_format);
     const graphics_pipeline = try GraphicsPipeline.init(allocator_, logical_device, &swapchain, render_pass);
 
+    const frame_buffers = try create_framebuffers(allocator_, logical_device, &swapchain, render_pass);
+
     return VulkanSystem{
         .allocator = allocator_,
 
@@ -97,10 +100,17 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
         .swapchain = swapchain,
         .render_pass = render_pass,
         .graphics_pipeline = graphics_pipeline,
+        .swapchain_framebuffers = frame_buffers,
     };
 }
 
 pub fn deinit(self: *VulkanSystem) void {
+    var i: usize = 0;
+    while (i < self.swapchain_framebuffers.len) : (i += 1) {
+        vulkan.vkDestroyFramebuffer(self.logical_device, self.swapchain_framebuffers[i], null);
+    }
+    self.allocator.free(self.swapchain_framebuffers);
+
     self.graphics_pipeline.deinit();
     vulkan.vkDestroyRenderPass(self.logical_device, self.render_pass, null);
     self.swapchain.deinit();
@@ -646,4 +656,45 @@ fn create_render_pass(device: vulkan.VkDevice, swap_chain_image_format: vulkan.V
     }
 
     return render_pass;
+}
+
+fn create_framebuffers(
+    allocator_: std.mem.Allocator,
+    device: vulkan.VkDevice,
+    swapchain: *const Swapchain,
+    render_pass: vulkan.VkRenderPass,
+) VulkanError![]vulkan.VkFramebuffer {
+    var framebuffers = try allocator_.alloc(vulkan.VkFramebuffer, swapchain.swapchain_image_views.len);
+    errdefer allocator_.free(framebuffers);
+
+    var i: usize = 0;
+    while (i < swapchain.swapchain_image_views.len) : (i += 1) {
+        const attachments = [_]vulkan.VkImageView{
+            swapchain.swapchain_image_views[i],
+        };
+
+        var framebuffer_info = vulkan.VkFramebufferCreateInfo{
+            .sType = vulkan.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+            .renderPass = render_pass,
+            .attachmentCount = attachments.len,
+            .pAttachments = attachments[0..].ptr,
+            .width = swapchain.swapchain_extent.width,
+            .height = swapchain.swapchain_extent.height,
+            .layers = 1,
+
+            .pNext = null,
+            .flags = 0,
+        };
+
+        const result = vulkan.vkCreateFramebuffer(device, &framebuffer_info, null, &framebuffers[i]);
+        if (result != vulkan.VK_SUCCESS) {
+            switch (result) {
+                vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+                vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+                else => unreachable,
+            }
+        }
+    }
+
+    return framebuffers;
 }
