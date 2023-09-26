@@ -76,7 +76,7 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
 
     const swapchain = try Swapchain.init(allocator_, physical_device, logical_device, surface);
 
-    const graphics_pipeline = try GraphicsPipeline.init(allocator_, logical_device);
+    const graphics_pipeline = try GraphicsPipeline.init(allocator_, logical_device, &swapchain);
 
     return VulkanSystem{
         .allocator = allocator_,
@@ -98,6 +98,7 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
 }
 
 pub fn deinit(self: *VulkanSystem) void {
+    self.graphics_pipeline.deinit();
     self.swapchain.deinit();
 
     vulkan.vkDestroyDevice(self.logical_device, null);
