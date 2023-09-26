@@ -26,7 +26,6 @@ present_queue: vulkan.VkQueue,
 swapchain: Swapchain,
 render_pass: vulkan.VkRenderPass,
 graphics_pipeline: GraphicsPipeline,
-swapchain_framebuffers: []vulkan.VkFramebuffer,
 
 command_pool: vulkan.VkCommandPool,
 command_buffers: []vulkan.VkCommandBuffer,
@@ -36,6 +35,8 @@ render_finished_semaphores: []vulkan.VkSemaphore,
 in_flight_fences: []vulkan.VkFence,
 
 current_frame: usize = 0,
+
+framebuffer_resized: bool = false,
 
 pub const VulkanError = error{
     validation_layer_not_present,
@@ -87,12 +88,12 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
     var present_queue: vulkan.VkQueue = undefined;
     vulkan.vkGetDeviceQueue(logical_device, queue_family_indices.present_family.?, 0, &present_queue);
 
-    const swapchain = try Swapchain.init(allocator_, physical_device, logical_device, surface);
+    const swapchain_image_format = try Swapchain.get_swapchain_image_format(allocator_, physical_device, surface);
+    const render_pass = try create_render_pass(logical_device, swapchain_image_format);
 
-    const render_pass = try create_render_pass(logical_device, swapchain.swapchain_image_format);
+    const swapchain = try Swapchain.init(allocator_, window, physical_device, logical_device, surface, render_pass);
+
     const graphics_pipeline = try GraphicsPipeline.init(allocator_, logical_device, &swapchain, render_pass);
-
-    const frame_buffers = try create_framebuffers(allocator_, logical_device, &swapchain, render_pass);
 
     const command_pool = try create_command_pool(allocator_, physical_device, logical_device, surface);
     const command_buffers = try create_command_buffers(allocator_, logical_device, command_pool);
@@ -116,7 +117,6 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
         .swapchain = swapchain,
         .render_pass = render_pass,
         .graphics_pipeline = graphics_pipeline,
-        .swapchain_framebuffers = frame_buffers,
 
         .command_pool = command_pool,
         .command_buffers = command_buffers,
@@ -147,12 +147,6 @@ pub fn deinit(self: *VulkanSystem) void {
 
     self.allocator.free(self.command_buffers);
 
-    i = 0;
-    while (i < self.swapchain_framebuffers.len) : (i += 1) {
-        vulkan.vkDestroyFramebuffer(self.logical_device, self.swapchain_framebuffers[i], null);
-    }
-    self.allocator.free(self.swapchain_framebuffers);
-
     self.graphics_pipeline.deinit();
     vulkan.vkDestroyRenderPass(self.logical_device, self.render_pass, null);
     self.swapchain.deinit();
@@ -168,13 +162,9 @@ pub fn deinit(self: *VulkanSystem) void {
 }
 
 pub fn draw_frame(self: *VulkanSystem) VulkanError!void {
-    // Wait for the previous frame to finish
+    // --- Wait for the previous frame to finish.
+
     var result = vulkan.vkWaitForFences(self.logical_device, 1, &self.in_flight_fences[self.current_frame], vulkan.VK_TRUE, std.math.maxInt(u64));
-    if (result != vulkan.VK_SUCCESS) {
-        unreachable;
-    }
-    // After waiting, reset the fence.
-    result = vulkan.vkResetFences(self.logical_device, 1, &self.in_flight_fences[self.current_frame]);
     if (result != vulkan.VK_SUCCESS) {
         unreachable;
     }
@@ -190,6 +180,19 @@ pub fn draw_frame(self: *VulkanSystem) VulkanError!void {
         @ptrCast(vulkan.VK_NULL_HANDLE),
         &image_index,
     );
+    if (result != vulkan.VK_SUCCESS and result != vulkan.VK_SUBOPTIMAL_KHR) {
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_DATE_KHR => {
+                try self.swapchain.recreate_swapchain();
+                return;
+            },
+            else => unreachable,
+        }
+    }
+
+    // --- Reset the fence if submitting work.
+
+    result = vulkan.vkResetFences(self.logical_device, 1, &self.in_flight_fences[self.current_frame]);
     if (result != vulkan.VK_SUCCESS) {
         unreachable;
     }
@@ -244,7 +247,20 @@ pub fn draw_frame(self: *VulkanSystem) VulkanError!void {
 
     result = vulkan.vkQueuePresentKHR(self.present_queue, &present_info);
     if (result != vulkan.VK_SUCCESS) {
-        unreachable;
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_DATE_KHR => {
+                try self.swapchain.recreate_swapchain();
+            },
+            vulkan.VK_SUBOPTIMAL_KHR => {
+                try self.swapchain.recreate_swapchain();
+            },
+            else => unreachable,
+        }
+    }
+
+    if (self.framebuffer_resized) {
+        self.framebuffer_resized = false;
+        try self.swapchain.recreate_swapchain();
     }
 
     self.current_frame = (self.current_frame + 1) % max_frames_in_flight;
@@ -796,47 +812,6 @@ fn create_render_pass(device: vulkan.VkDevice, swap_chain_image_format: vulkan.V
     return render_pass;
 }
 
-fn create_framebuffers(
-    allocator_: std.mem.Allocator,
-    device: vulkan.VkDevice,
-    swapchain: *const Swapchain,
-    render_pass: vulkan.VkRenderPass,
-) VulkanError![]vulkan.VkFramebuffer {
-    var framebuffers = try allocator_.alloc(vulkan.VkFramebuffer, swapchain.swapchain_image_views.len);
-    errdefer allocator_.free(framebuffers);
-
-    var i: usize = 0;
-    while (i < swapchain.swapchain_image_views.len) : (i += 1) {
-        const attachments = [_]vulkan.VkImageView{
-            swapchain.swapchain_image_views[i],
-        };
-
-        var framebuffer_info = vulkan.VkFramebufferCreateInfo{
-            .sType = vulkan.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-            .renderPass = render_pass,
-            .attachmentCount = attachments.len,
-            .pAttachments = attachments[0..].ptr,
-            .width = swapchain.swapchain_extent.width,
-            .height = swapchain.swapchain_extent.height,
-            .layers = 1,
-
-            .pNext = null,
-            .flags = 0,
-        };
-
-        const result = vulkan.vkCreateFramebuffer(device, &framebuffer_info, null, &framebuffers[i]);
-        if (result != vulkan.VK_SUCCESS) {
-            switch (result) {
-                vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
-                vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
-                else => unreachable,
-            }
-        }
-    }
-
-    return framebuffers;
-}
-
 fn create_command_pool(allocator_: std.mem.Allocator, physical_device: vulkan.VkPhysicalDevice, logical_device: vulkan.VkDevice, surface: vulkan.VkSurfaceKHR) VulkanError!vulkan.VkCommandPool {
     const queue_family_indices = try find_queue_families(physical_device, allocator_, surface);
 
@@ -919,7 +894,7 @@ fn record_command_buffer(self: *VulkanSystem, command_buffer: vulkan.VkCommandBu
     const render_pass_info = vulkan.VkRenderPassBeginInfo{
         .sType = vulkan.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
         .renderPass = self.render_pass,
-        .framebuffer = self.swapchain_framebuffers[image_index],
+        .framebuffer = self.swapchain.framebuffers[image_index],
         .renderArea = vulkan.VkRect2D{
             .offset = .{ .x = 0, .y = 0 },
             .extent = self.swapchain.swapchain_extent,

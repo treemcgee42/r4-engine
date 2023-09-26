@@ -14,6 +14,8 @@ pub const HelloTriangleApp = struct {
     window: *glfw.GLFWwindow,
     vulkan_system: VulkanSystem,
 
+    const App = @This();
+
     pub const InitError = error{
         glfw_init_failed,
         glfw_create_window_failed,
@@ -28,7 +30,7 @@ pub const HelloTriangleApp = struct {
 
         glfw.glfwWindowHint(glfw.GLFW_CLIENT_API, glfw.GLFW_NO_API);
 
-        glfw.glfwWindowHint(glfw.GLFW_RESIZABLE, glfw.GLFW_FALSE);
+        glfw.glfwWindowHint(glfw.GLFW_RESIZABLE, glfw.GLFW_TRUE);
 
         const maybe_window = glfw.glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", null, null);
         if (maybe_window == null) {
@@ -48,6 +50,18 @@ pub const HelloTriangleApp = struct {
             .window = window,
             .vulkan_system = vulkan_system,
         };
+    }
+
+    pub fn setup_resize(self: *HelloTriangleApp) void {
+        glfw.glfwSetWindowUserPointer(self.window, self);
+        _ = glfw.glfwSetFramebufferSizeCallback(self.window, window_resize_callback);
+    }
+
+    fn window_resize_callback(window: ?*glfw.GLFWwindow, width: c_int, height: c_int) callconv(.C) void {
+        _ = height;
+        _ = width;
+        var app: *HelloTriangleApp = @ptrCast(@alignCast(glfw.glfwGetWindowUserPointer(window)));
+        app.vulkan_system.framebuffer_resized = true;
     }
 
     pub fn deinit(self: *HelloTriangleApp) void {
@@ -76,6 +90,7 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     var app = try HelloTriangleApp.init(allocator);
+    app.setup_resize();
     defer app.deinit();
 
     try app.run();
