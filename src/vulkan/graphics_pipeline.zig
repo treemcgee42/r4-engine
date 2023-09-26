@@ -9,8 +9,9 @@ const GraphicsPipeline = @This();
 device: vulkan.VkDevice,
 
 pipeline_layout: vulkan.VkPipelineLayout,
+pipeline: vulkan.VkPipeline,
 
-pub fn init(allocator_: std.mem.Allocator, device: vulkan.VkDevice, swapchain: *const Swapchain) VulkanError!GraphicsPipeline {
+pub fn init(allocator_: std.mem.Allocator, device: vulkan.VkDevice, swapchain: *const Swapchain, render_pass: vulkan.VkRenderPass) VulkanError!GraphicsPipeline {
     _ = swapchain;
     const vert_shader_code = try read_file("shaders/compiled_output/shader.vert.spv", allocator_);
     defer allocator_.free(vert_shader_code);
@@ -48,7 +49,6 @@ pub fn init(allocator_: std.mem.Allocator, device: vulkan.VkDevice, swapchain: *
         vert_shader_stage_pipeline_create_info,
         frag_shader_stage_pipeline_create_info,
     };
-    _ = shader_stages;
 
     // --- Input assembly.
 
@@ -61,7 +61,6 @@ pub fn init(allocator_: std.mem.Allocator, device: vulkan.VkDevice, swapchain: *
         .pNext = null,
         .flags = 0,
     };
-    _ = vertex_input_info;
 
     const input_assembly = vulkan.VkPipelineInputAssemblyStateCreateInfo{
         .sType = vulkan.VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
@@ -70,7 +69,6 @@ pub fn init(allocator_: std.mem.Allocator, device: vulkan.VkDevice, swapchain: *
         .pNext = null,
         .flags = 0,
     };
-    _ = input_assembly;
 
     // --- Viewport and scissor.
 
@@ -85,7 +83,6 @@ pub fn init(allocator_: std.mem.Allocator, device: vulkan.VkDevice, swapchain: *
         .pNext = null,
         .flags = 0,
     };
-    _ = dynamic_state;
 
     const viewport_state = vulkan.VkPipelineViewportStateCreateInfo{
         .sType = vulkan.VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
@@ -96,7 +93,6 @@ pub fn init(allocator_: std.mem.Allocator, device: vulkan.VkDevice, swapchain: *
         .pNext = null,
         .flags = 0,
     };
-    _ = viewport_state;
 
     // --- Rasterizer.
 
@@ -115,7 +111,6 @@ pub fn init(allocator_: std.mem.Allocator, device: vulkan.VkDevice, swapchain: *
         .depthBiasClamp = 0.0,
         .depthBiasSlopeFactor = 0.0,
     };
-    _ = rasterizer;
 
     // --- Multisampling.
 
@@ -131,7 +126,6 @@ pub fn init(allocator_: std.mem.Allocator, device: vulkan.VkDevice, swapchain: *
         .pNext = null,
         .flags = 0,
     };
-    _ = multisampling;
 
     // --- Color blending.
 
@@ -163,7 +157,6 @@ pub fn init(allocator_: std.mem.Allocator, device: vulkan.VkDevice, swapchain: *
         .pNext = null,
         .flags = 0,
     };
-    _ = color_blending;
 
     // -- Pipeline layout.
 
@@ -179,11 +172,47 @@ pub fn init(allocator_: std.mem.Allocator, device: vulkan.VkDevice, swapchain: *
     };
 
     var pipeline_layout: vulkan.VkPipelineLayout = undefined;
-    const result = vulkan.vkCreatePipelineLayout(device, &pipeline_layout_info, null, &pipeline_layout);
+    var result = vulkan.vkCreatePipelineLayout(device, &pipeline_layout_info, null, &pipeline_layout);
     if (result != vulkan.VK_SUCCESS) {
         switch (result) {
             vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
             vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+            else => unreachable,
+        }
+    }
+
+    // -- Pipeline.
+
+    const pipeline_info = vulkan.VkGraphicsPipelineCreateInfo{
+        .sType = vulkan.VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+        .stageCount = shader_stages.len,
+        .pStages = shader_stages[0..].ptr,
+        .pVertexInputState = &vertex_input_info,
+        .pInputAssemblyState = &input_assembly,
+        .pViewportState = &viewport_state,
+        .pRasterizationState = &rasterizer,
+        .pMultisampleState = &multisampling,
+        .pColorBlendState = &color_blending,
+        .pDynamicState = &dynamic_state,
+        .layout = pipeline_layout,
+        .renderPass = render_pass,
+        .subpass = 0,
+
+        .basePipelineHandle = @ptrCast(vulkan.VK_NULL_HANDLE),
+        .basePipelineIndex = -1,
+        .pNext = null,
+        .flags = 0,
+        .pTessellationState = null,
+        .pDepthStencilState = null,
+    };
+
+    var pipeline: vulkan.VkPipeline = undefined;
+    result = vulkan.vkCreateGraphicsPipelines(device, @ptrCast(vulkan.VK_NULL_HANDLE), 1, &pipeline_info, null, &pipeline);
+    if (result != vulkan.VK_SUCCESS) {
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+            vulkan.VK_ERROR_INVALID_SHADER_NV => return VulkanError.vk_error_invalid_shader_nv,
             else => unreachable,
         }
     }
@@ -196,10 +225,12 @@ pub fn init(allocator_: std.mem.Allocator, device: vulkan.VkDevice, swapchain: *
     return .{
         .device = device,
         .pipeline_layout = pipeline_layout,
+        .pipeline = pipeline,
     };
 }
 
 pub fn deinit(self: GraphicsPipeline) void {
+    vulkan.vkDestroyPipeline(self.device, self.pipeline, null);
     vulkan.vkDestroyPipelineLayout(self.device, self.pipeline_layout, null);
 }
 

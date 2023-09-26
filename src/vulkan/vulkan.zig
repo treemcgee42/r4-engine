@@ -78,7 +78,7 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
     const swapchain = try Swapchain.init(allocator_, physical_device, logical_device, surface);
 
     const render_pass = try create_render_pass(logical_device, swapchain.swapchain_image_format);
-    const graphics_pipeline = try GraphicsPipeline.init(allocator_, logical_device, &swapchain);
+    const graphics_pipeline = try GraphicsPipeline.init(allocator_, logical_device, &swapchain, render_pass);
 
     return VulkanSystem{
         .allocator = allocator_,
