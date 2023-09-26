@@ -88,9 +88,8 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
     var present_queue: vulkan.VkQueue = undefined;
     vulkan.vkGetDeviceQueue(logical_device, queue_family_indices.present_family.?, 0, &present_queue);
 
-    const swapchain_image_format = try Swapchain.get_swapchain_image_format(allocator_, physical_device, surface);
-    const render_pass = try create_render_pass(logical_device, swapchain_image_format);
-
+    const swapchain_settings = try Swapchain.query_swapchain_settings(allocator_, physical_device, logical_device, surface);
+    const render_pass = try create_render_pass(logical_device, swapchain_settings.surface_format.format);
     const swapchain = try Swapchain.init(allocator_, window, physical_device, logical_device, surface, render_pass);
 
     const graphics_pipeline = try GraphicsPipeline.init(allocator_, logical_device, &swapchain, render_pass);
@@ -183,7 +182,13 @@ pub fn draw_frame(self: *VulkanSystem) VulkanError!void {
     if (result != vulkan.VK_SUCCESS and result != vulkan.VK_SUBOPTIMAL_KHR) {
         switch (result) {
             vulkan.VK_ERROR_OUT_OF_DATE_KHR => {
-                try self.swapchain.recreate_swapchain();
+                const swapchain_settings = try Swapchain.query_swapchain_settings(
+                    self.allocator,
+                    self.physical_device,
+                    self.logical_device,
+                    self.surface,
+                );
+                try self.swapchain.recreate_swapchain(swapchain_settings);
                 return;
             },
             else => unreachable,
@@ -249,10 +254,22 @@ pub fn draw_frame(self: *VulkanSystem) VulkanError!void {
     if (result != vulkan.VK_SUCCESS) {
         switch (result) {
             vulkan.VK_ERROR_OUT_OF_DATE_KHR => {
-                try self.swapchain.recreate_swapchain();
+                const swapchain_settings = try Swapchain.query_swapchain_settings(
+                    self.allocator,
+                    self.physical_device,
+                    self.logical_device,
+                    self.surface,
+                );
+                try self.swapchain.recreate_swapchain(swapchain_settings);
             },
             vulkan.VK_SUBOPTIMAL_KHR => {
-                try self.swapchain.recreate_swapchain();
+                const swapchain_settings = try Swapchain.query_swapchain_settings(
+                    self.allocator,
+                    self.physical_device,
+                    self.logical_device,
+                    self.surface,
+                );
+                try self.swapchain.recreate_swapchain(swapchain_settings);
             },
             else => unreachable,
         }
@@ -260,7 +277,13 @@ pub fn draw_frame(self: *VulkanSystem) VulkanError!void {
 
     if (self.framebuffer_resized) {
         self.framebuffer_resized = false;
-        try self.swapchain.recreate_swapchain();
+        const swapchain_settings = try Swapchain.query_swapchain_settings(
+            self.allocator,
+            self.physical_device,
+            self.logical_device,
+            self.surface,
+        );
+        try self.swapchain.recreate_swapchain(swapchain_settings);
     }
 
     self.current_frame = (self.current_frame + 1) % max_frames_in_flight;
