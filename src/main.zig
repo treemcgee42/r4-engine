@@ -50,18 +50,23 @@ pub const HelloTriangleApp = struct {
         };
     }
 
-    pub fn run(self: *HelloTriangleApp) !void {
-        while (glfw.glfwWindowShouldClose(self.window) == 0) {
-            glfw.glfwPollEvents();
-        }
-    }
-
-    fn deinit(self: *HelloTriangleApp) void {
+    pub fn deinit(self: *HelloTriangleApp) void {
         self.vulkan_system.deinit();
 
         glfw.glfwDestroyWindow(self.window);
 
         glfw.glfwTerminate();
+    }
+
+    pub fn run(self: *HelloTriangleApp) !void {
+        try self.main_loop();
+    }
+
+    fn main_loop(self: *HelloTriangleApp) !void {
+        while (glfw.glfwWindowShouldClose(self.window) == 0) {
+            glfw.glfwPollEvents();
+            try self.vulkan_system.draw_frame();
+        }
     }
 };
 
