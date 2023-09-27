@@ -3,6 +3,7 @@ const vulkan = @import("../c.zig").vulkan;
 
 const VulkanError = @import("./vulkan.zig").VulkanError;
 const Swapchain = @import("./swapchain.zig");
+const Vertex = @import("../vertex.zig");
 
 const GraphicsPipeline = @This();
 
@@ -52,12 +53,15 @@ pub fn init(allocator_: std.mem.Allocator, device: vulkan.VkDevice, swapchain: *
 
     // --- Input assembly.
 
+    const binding_descrpition = Vertex.Vertex.get_binding_description();
+    const attribute_descrpitions = Vertex.Vertex.get_attribute_descriptions();
+
     const vertex_input_info = vulkan.VkPipelineVertexInputStateCreateInfo{
         .sType = vulkan.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-        .vertexBindingDescriptionCount = 0,
-        .pVertexBindingDescriptions = null,
-        .vertexAttributeDescriptionCount = 0,
-        .pVertexAttributeDescriptions = null,
+        .vertexBindingDescriptionCount = 1,
+        .pVertexBindingDescriptions = &binding_descrpition,
+        .vertexAttributeDescriptionCount = @intCast(attribute_descrpitions.len),
+        .pVertexAttributeDescriptions = attribute_descrpitions[0..].ptr,
         .pNext = null,
         .flags = 0,
     };
