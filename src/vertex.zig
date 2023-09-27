@@ -34,7 +34,7 @@ pub const Vertex = struct {
 pub const vertices = [_]Vertex{
     Vertex{
         .position = Math.Vec2f.init(0.0, -0.5),
-        .color = Math.Vec3f.init(1.0, 0.0, 0.0),
+        .color = Math.Vec3f.init(1.0, 1.0, 1.0),
     },
     Vertex{
         .position = Math.Vec2f.init(0.5, 0.5),

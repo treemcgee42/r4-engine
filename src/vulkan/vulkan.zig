@@ -1,3 +1,7 @@
+const c_string = @cImport({
+    @cInclude("string.h");
+});
+
 const std = @import("std");
 const builtin = @import("builtin");
 
@@ -7,6 +11,7 @@ const glfw = @import("../c.zig").glfw;
 const DebugMessenger = @import("./debug.zig");
 const Swapchain = @import("./swapchain.zig");
 const GraphicsPipeline = @import("./graphics_pipeline.zig");
+const Vertex = @import("../vertex.zig");
 
 const VulkanSystem = @This();
 
@@ -27,6 +32,8 @@ swapchain: Swapchain,
 render_pass: vulkan.VkRenderPass,
 graphics_pipeline: GraphicsPipeline,
 
+vertex_buffer: VertexBuffer,
+
 command_pool: vulkan.VkCommandPool,
 command_buffers: []vulkan.VkCommandBuffer,
 
@@ -45,6 +52,7 @@ pub const VulkanError = error{
     surface_creation_failed,
     file_not_found,
     file_loading_failed,
+    no_suitable_memory_type,
 
     vk_error_out_of_host_memory,
     vk_error_out_of_device_memory,
@@ -94,6 +102,8 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
 
     const graphics_pipeline = try GraphicsPipeline.init(allocator_, logical_device, &swapchain, render_pass);
 
+    const vertex_buffer = try VertexBuffer.init(physical_device, logical_device);
+
     const command_pool = try create_command_pool(allocator_, physical_device, logical_device, surface);
     const command_buffers = try create_command_buffers(allocator_, logical_device, command_pool);
 
@@ -116,6 +126,8 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
         .swapchain = swapchain,
         .render_pass = render_pass,
         .graphics_pipeline = graphics_pipeline,
+
+        .vertex_buffer = vertex_buffer,
 
         .command_pool = command_pool,
         .command_buffers = command_buffers,
@@ -149,6 +161,8 @@ pub fn deinit(self: *VulkanSystem) void {
     self.graphics_pipeline.deinit();
     vulkan.vkDestroyRenderPass(self.logical_device, self.render_pass, null);
     self.swapchain.deinit();
+
+    self.vertex_buffer.deinit(self.logical_device);
 
     vulkan.vkDestroyDevice(self.logical_device, null);
 
@@ -934,6 +948,10 @@ fn record_command_buffer(self: *VulkanSystem, command_buffer: vulkan.VkCommandBu
 
     vulkan.vkCmdBindPipeline(command_buffer, vulkan.VK_PIPELINE_BIND_POINT_GRAPHICS, self.graphics_pipeline.pipeline);
 
+    const vertex_buffers = [_]vulkan.VkBuffer{self.vertex_buffer.vertex_buffer};
+    const offsets = [_]vulkan.VkDeviceSize{0};
+    vulkan.vkCmdBindVertexBuffers(command_buffer, 0, 1, vertex_buffers[0..].ptr, offsets[0..].ptr);
+
     const viewport = vulkan.VkViewport{
         .x = 0.0,
         .y = 0.0,
@@ -950,7 +968,7 @@ fn record_command_buffer(self: *VulkanSystem, command_buffer: vulkan.VkCommandBu
     };
     vulkan.vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 
-    vulkan.vkCmdDraw(command_buffer, 3, 1, 0, 0);
+    vulkan.vkCmdDraw(command_buffer, Vertex.vertices.len, 1, 0, 0);
 
     // --- End render pass.
 
@@ -1032,3 +1050,114 @@ fn create_sync_objects(allocator_: std.mem.Allocator, device: vulkan.VkDevice) V
         .in_flight_fences = in_flight_fences,
     };
 }
+
+const VertexBuffer = struct {
+    vertex_buffer: vulkan.VkBuffer,
+    vertex_buffer_memory: vulkan.VkDeviceMemory,
+
+    fn init(physical_device: vulkan.VkPhysicalDevice, device: vulkan.VkDevice) VulkanError!VertexBuffer {
+        const buffer_info = vulkan.VkBufferCreateInfo{
+            .sType = vulkan.VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .size = @sizeOf(Vertex.Vertex) * Vertex.vertices.len,
+            .usage = vulkan.VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+            .sharingMode = vulkan.VK_SHARING_MODE_EXCLUSIVE,
+
+            .pNext = null,
+            .flags = 0,
+            .queueFamilyIndexCount = 0,
+            .pQueueFamilyIndices = null,
+        };
+
+        var vertex_buffer: vulkan.VkBuffer = undefined;
+        var result = vulkan.vkCreateBuffer(device, &buffer_info, null, &vertex_buffer);
+        if (result != vulkan.VK_SUCCESS) {
+            switch (result) {
+                vulkan.VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS_KHR => return VulkanError.vk_error_invalid_opaque_capture_address_khr,
+                vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+                vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+                else => unreachable,
+            }
+        }
+        errdefer vulkan.vkDestroyBuffer(device, vertex_buffer, null);
+
+        // --- Memory allocation.
+
+        var memory_requirements: vulkan.VkMemoryRequirements = undefined;
+        vulkan.vkGetBufferMemoryRequirements(device, vertex_buffer, &memory_requirements);
+
+        const memory_type_index = try find_memory_type(
+            physical_device,
+            memory_requirements.memoryTypeBits,
+            vulkan.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vulkan.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        );
+        const alloc_info = vulkan.VkMemoryAllocateInfo{
+            .sType = vulkan.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+            .allocationSize = memory_requirements.size,
+            .memoryTypeIndex = memory_type_index,
+
+            .pNext = null,
+        };
+
+        var vertex_buffer_memory: vulkan.VkDeviceMemory = undefined;
+        result = vulkan.vkAllocateMemory(device, &alloc_info, null, &vertex_buffer_memory);
+        if (result != vulkan.VK_SUCCESS) {
+            switch (result) {
+                vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+                vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+                else => unreachable,
+            }
+        }
+        errdefer vulkan.vkFreeMemory(device, vertex_buffer_memory, null);
+
+        // --- Bind memory.
+
+        result = vulkan.vkBindBufferMemory(device, vertex_buffer, vertex_buffer_memory, 0);
+        if (result != vulkan.VK_SUCCESS) {
+            switch (result) {
+                vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+                vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+                else => unreachable,
+            }
+        }
+
+        // --- Fill memory.
+
+        var data: ?*anyopaque = undefined;
+        result = vulkan.vkMapMemory(device, vertex_buffer_memory, 0, buffer_info.size, 0, &data);
+        if (result != vulkan.VK_SUCCESS) {
+            switch (result) {
+                vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+                vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+                else => unreachable,
+            }
+        }
+
+        _ = c_string.memcpy(data, @ptrCast(Vertex.vertices[0..].ptr), @intCast(buffer_info.size));
+
+        vulkan.vkUnmapMemory(device, vertex_buffer_memory);
+
+        return VertexBuffer{
+            .vertex_buffer = vertex_buffer,
+            .vertex_buffer_memory = vertex_buffer_memory,
+        };
+    }
+
+    fn deinit(self: VertexBuffer, device: vulkan.VkDevice) void {
+        vulkan.vkDestroyBuffer(device, self.vertex_buffer, null);
+        vulkan.vkFreeMemory(device, self.vertex_buffer_memory, null);
+    }
+
+    fn find_memory_type(physical_device: vulkan.VkPhysicalDevice, memory_type_filter: u32, properties: vulkan.VkMemoryPropertyFlags) VulkanError!u32 {
+        var memory_properties: vulkan.VkPhysicalDeviceMemoryProperties = undefined;
+        vulkan.vkGetPhysicalDeviceMemoryProperties(physical_device, &memory_properties);
+
+        var i: u5 = 0;
+        while (i < memory_properties.memoryTypeCount) : (i += 1) {
+            if ((memory_type_filter & (@as(u32, @intCast(1)) << i) != 0) and (memory_properties.memoryTypes[i].propertyFlags & properties) == properties) {
+                return i;
+            }
+        }
+
+        return VulkanError.no_suitable_memory_type;
+    }
+};
