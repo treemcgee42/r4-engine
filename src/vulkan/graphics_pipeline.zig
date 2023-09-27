@@ -12,7 +12,13 @@ device: vulkan.VkDevice,
 pipeline_layout: vulkan.VkPipelineLayout,
 pipeline: vulkan.VkPipeline,
 
-pub fn init(allocator_: std.mem.Allocator, device: vulkan.VkDevice, swapchain: *const Swapchain, render_pass: vulkan.VkRenderPass) VulkanError!GraphicsPipeline {
+pub fn init(
+    allocator_: std.mem.Allocator,
+    device: vulkan.VkDevice,
+    swapchain: *const Swapchain,
+    render_pass: vulkan.VkRenderPass,
+    descriptor_set_layout: vulkan.VkDescriptorSetLayout,
+) VulkanError!GraphicsPipeline {
     _ = swapchain;
     const vert_shader_code = try read_file("shaders/compiled_output/shader.vert.spv", allocator_);
     defer allocator_.free(vert_shader_code);
@@ -166,9 +172,9 @@ pub fn init(allocator_: std.mem.Allocator, device: vulkan.VkDevice, swapchain: *
 
     const pipeline_layout_info = vulkan.VkPipelineLayoutCreateInfo{
         .sType = vulkan.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = 1,
+        .pSetLayouts = &descriptor_set_layout,
         // Default:
-        .setLayoutCount = 0,
-        .pSetLayouts = null,
         .pushConstantRangeCount = 0,
         .pPushConstantRanges = null,
         .pNext = null,

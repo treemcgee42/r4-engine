@@ -17,3 +17,9 @@ pub const vulkan = struct {
         @cInclude("vulkan/vulkan.h");
     });
 };
+
+const c_string = @cImport({
+    @cInclude("string.h");
+});
+
+pub const memcpy = c_string.memcpy;

@@ -1,7 +1,7 @@
 const c_string = @cImport({
     @cInclude("string.h");
 });
-
+const std = @import("std");
 const vulkan = @import("../c.zig").vulkan;
 const VulkanError = @import("./vulkan.zig").VulkanError;
 const Vertex = @import("../vertex.zig");
@@ -332,5 +332,66 @@ pub const IndexBuffer = struct {
 
     pub fn deinit(self: IndexBuffer, device: vulkan.VkDevice) void {
         self.buffer.deinit(device);
+    }
+};
+
+pub const UniformBuffers = struct {
+    allocator: std.mem.Allocator,
+    buffers: []Buffer,
+    buffers_mapped: []?*anyopaque,
+
+    pub fn init(
+        allocator: std.mem.Allocator,
+        physical_device: vulkan.VkPhysicalDevice,
+        device: vulkan.VkDevice,
+        max_frames_in_flight: usize,
+    ) VulkanError!UniformBuffers {
+        var buffers = try allocator.alloc(Buffer, max_frames_in_flight);
+        errdefer allocator.free(buffers);
+        var buffers_mapped = try allocator.alloc(?*anyopaque, max_frames_in_flight);
+        errdefer allocator.free(buffers_mapped);
+
+        const buffer_size = @sizeOf(Vertex.UniformBufferObject);
+
+        var i: usize = 0;
+        while (i < max_frames_in_flight) : (i += 1) {
+            // --- Create buffer.
+
+            const buffer = try Buffer.init(
+                physical_device,
+                device,
+                buffer_size,
+                vulkan.VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                vulkan.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vulkan.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            );
+            errdefer buffer.deinit(device);
+
+            // --- Persistently map buffers.
+
+            var result = vulkan.vkMapMemory(device, buffer.buffer_memory, 0, buffer_size, 0, &buffers_mapped[i]);
+            if (result != vulkan.VK_SUCCESS) {
+                switch (result) {
+                    vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+                    vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+                    else => unreachable,
+                }
+            }
+        }
+
+        return .{
+            .allocator = allocator,
+            .buffers = buffers,
+            .buffers_mapped = buffers_mapped,
+        };
+    }
+
+    pub fn deinit(self: UniformBuffers, device: vulkan.VkDevice) void {
+        var i: usize = 0;
+        while (i < self.buffers.len) : (i += 1) {
+            self.buffers[i].deinit(device);
+        }
+
+        self.allocator.free(self.buffers);
+        self.allocator.free(self.buffers_mapped);
     }
 };

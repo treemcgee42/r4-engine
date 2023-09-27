@@ -3,11 +3,14 @@ const builtin = @import("builtin");
 
 const vulkan = @import("../c.zig").vulkan;
 const glfw = @import("../c.zig").glfw;
+const c_memcpy = @import("../c.zig").memcpy;
 
 const DebugMessenger = @import("./debug.zig");
 const Swapchain = @import("./swapchain.zig");
 const GraphicsPipeline = @import("./graphics_pipeline.zig");
 const buffer = @import("./buffer.zig");
+const math = @import("../math.zig");
+const vertex = @import("../vertex.zig");
 
 const VulkanSystem = @This();
 
@@ -26,6 +29,7 @@ present_queue: vulkan.VkQueue,
 
 swapchain: Swapchain,
 render_pass: vulkan.VkRenderPass,
+descriptor_set_layout: vulkan.VkDescriptorSetLayout,
 graphics_pipeline: GraphicsPipeline,
 
 command_pool: vulkan.VkCommandPool,
@@ -33,6 +37,7 @@ command_buffers: []vulkan.VkCommandBuffer,
 
 vertex_buffer: buffer.VertexBuffer,
 index_buffer: buffer.IndexBuffer,
+uniform_buffers: buffer.UniformBuffers,
 
 image_available_semaphores: []vulkan.VkSemaphore,
 render_finished_semaphores: []vulkan.VkSemaphore,
@@ -41,6 +46,8 @@ in_flight_fences: []vulkan.VkFence,
 current_frame: usize = 0,
 
 framebuffer_resized: bool = false,
+
+start_time: i64,
 
 pub const VulkanError = error{
     validation_layer_not_present,
@@ -97,7 +104,14 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
     const render_pass = try create_render_pass(logical_device, swapchain_settings.surface_format.format);
     const swapchain = try Swapchain.init(allocator_, window, physical_device, logical_device, surface, render_pass);
 
-    const graphics_pipeline = try GraphicsPipeline.init(allocator_, logical_device, &swapchain, render_pass);
+    const descriptor_set_layout = try create_descriptor_set_layout(logical_device);
+    const graphics_pipeline = try GraphicsPipeline.init(
+        allocator_,
+        logical_device,
+        &swapchain,
+        render_pass,
+        descriptor_set_layout,
+    );
 
     const command_pool = try create_command_pool(allocator_, physical_device, logical_device, surface);
     const command_buffers = try create_command_buffers(allocator_, logical_device, command_pool);
@@ -113,6 +127,12 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
         logical_device,
         command_pool,
         graphics_queue,
+    );
+    const uniform_buffers = try buffer.UniformBuffers.init(
+        allocator_,
+        physical_device,
+        logical_device,
+        max_frames_in_flight,
     );
 
     const sync_objects = try create_sync_objects(allocator_, logical_device);
@@ -133,6 +153,7 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
 
         .swapchain = swapchain,
         .render_pass = render_pass,
+        .descriptor_set_layout = descriptor_set_layout,
         .graphics_pipeline = graphics_pipeline,
 
         .command_pool = command_pool,
@@ -140,10 +161,13 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
 
         .vertex_buffer = vertex_buffer,
         .index_buffer = index_buffer,
+        .uniform_buffers = uniform_buffers,
 
         .image_available_semaphores = sync_objects.image_available_semaphores,
         .render_finished_semaphores = sync_objects.render_finished_semaphores,
         .in_flight_fences = sync_objects.in_flight_fences,
+
+        .start_time = std.time.milliTimestamp(),
     };
 }
 
@@ -171,8 +195,11 @@ pub fn deinit(self: *VulkanSystem) void {
     vulkan.vkDestroyRenderPass(self.logical_device, self.render_pass, null);
     self.swapchain.deinit();
 
+    vulkan.vkDestroyDescriptorSetLayout(self.logical_device, self.descriptor_set_layout, null);
+
     self.vertex_buffer.deinit(self.logical_device);
     self.index_buffer.deinit(self.logical_device);
+    self.uniform_buffers.deinit(self.logical_device);
 
     vulkan.vkDestroyDevice(self.logical_device, null);
 
@@ -234,6 +261,10 @@ pub fn draw_frame(self: *VulkanSystem) VulkanError!void {
     }
 
     try self.record_command_buffer(self.command_buffers[self.current_frame], image_index);
+
+    // --- Update uniform buffers.
+
+    self.update_uniform_buffer(image_index);
 
     // --- Submit command buffer.
 
@@ -1061,4 +1092,69 @@ fn create_sync_objects(allocator_: std.mem.Allocator, device: vulkan.VkDevice) V
         .render_finished_semaphores = render_finished_semaphores,
         .in_flight_fences = in_flight_fences,
     };
+}
+
+fn create_descriptor_set_layout(device: vulkan.VkDevice) VulkanError!vulkan.VkDescriptorSetLayout {
+    const ubo_layout_binding = vulkan.VkDescriptorSetLayoutBinding{
+        .binding = 0,
+        .descriptorType = vulkan.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .descriptorCount = 1,
+        .stageFlags = vulkan.VK_SHADER_STAGE_VERTEX_BIT,
+        .pImmutableSamplers = null,
+    };
+
+    var layout_info = vulkan.VkDescriptorSetLayoutCreateInfo{
+        .sType = vulkan.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .bindingCount = 1,
+        .pBindings = &ubo_layout_binding,
+
+        .pNext = null,
+        .flags = 0,
+    };
+
+    var descriptor_set_layout: vulkan.VkDescriptorSetLayout = undefined;
+    var result = vulkan.vkCreateDescriptorSetLayout(device, &layout_info, null, &descriptor_set_layout);
+    if (result != vulkan.VK_SUCCESS) {
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+            else => unreachable,
+        }
+    }
+
+    return descriptor_set_layout;
+}
+
+fn update_uniform_buffer(self: *VulkanSystem, current_image_idx: usize) void {
+    const current_time = std.time.milliTimestamp();
+    const time: f32 = @floor(@as(f32, @floatFromInt(current_time - self.start_time)) / 1000.0);
+
+    var model = math.Mat4f.init_identity();
+    var rotation_axis = math.Vec3f.init(0.0, 0.0, 1.0);
+    model.apply_rotation(time * std.math.degreesToRadians(f32, 90.0), &rotation_axis);
+
+    var view_v1 = math.Vec3f.init(2.0, 2.0, 2.0);
+    var view_v2 = math.Vec3f.init(0.0, 0.0, 0.0);
+    var view_v3 = math.Vec3f.init(0.0, 0.0, 1.0);
+    const view = math.Mat4f.init_look_at(
+        &view_v1,
+        &view_v2,
+        &view_v3,
+    );
+
+    var proj = math.Mat4f.init_perspective(
+        std.math.degreesToRadians(f32, 45.0),
+        @as(f32, @floatFromInt(self.swapchain.swapchain_extent.width)) / (@as(f32, @floatFromInt(self.swapchain.swapchain_extent.height))),
+        0.1,
+        10.0,
+    );
+    proj.raw[1][1] *= -1;
+
+    const ubo = vertex.UniformBufferObject{
+        .model = model,
+        .view = view,
+        .proj = proj,
+    };
+
+    _ = c_memcpy(self.uniform_buffers.buffers_mapped[current_image_idx], &ubo, @sizeOf(@TypeOf(ubo)));
 }

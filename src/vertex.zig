@@ -1,9 +1,9 @@
-const Math = @import("math.zig");
+const math = @import("math.zig");
 const vulkan = @import("c.zig").vulkan;
 
 pub const Vertex = struct {
-    position: Math.Vec2f,
-    color: Math.Vec3f,
+    position: math.Vec2f,
+    color: math.Vec3f,
 
     pub fn get_binding_description() vulkan.VkVertexInputBindingDescription {
         return .{
@@ -33,21 +33,27 @@ pub const Vertex = struct {
 
 pub const vertices = [_]Vertex{
     Vertex{
-        .position = Math.Vec2f.init(-0.5, -0.5),
-        .color = Math.Vec3f.init(1.0, 0.0, 1.0),
+        .position = math.Vec2f.init(-0.5, -0.5),
+        .color = math.Vec3f.init(1.0, 0.0, 1.0),
     },
     Vertex{
-        .position = Math.Vec2f.init(0.5, -0.5),
-        .color = Math.Vec3f.init(0.0, 1.0, 0.0),
+        .position = math.Vec2f.init(0.5, -0.5),
+        .color = math.Vec3f.init(0.0, 1.0, 0.0),
     },
     Vertex{
-        .position = Math.Vec2f.init(0.5, 0.5),
-        .color = Math.Vec3f.init(0.0, 0.0, 1.0),
+        .position = math.Vec2f.init(0.5, 0.5),
+        .color = math.Vec3f.init(0.0, 0.0, 1.0),
     },
     Vertex{
-        .position = Math.Vec2f.init(-0.5, 0.5),
-        .color = Math.Vec3f.init(1.0, 1.0, 1.0),
+        .position = math.Vec2f.init(-0.5, 0.5),
+        .color = math.Vec3f.init(1.0, 1.0, 1.0),
     },
 };
 
 pub const indices = [_]u16{ 0, 1, 2, 2, 3, 0 };
+
+pub const UniformBufferObject = struct {
+    model: math.Mat4f,
+    view: math.Mat4f,
+    proj: math.Mat4f,
+};
