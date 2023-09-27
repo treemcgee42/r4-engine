@@ -32,6 +32,7 @@ command_pool: vulkan.VkCommandPool,
 command_buffers: []vulkan.VkCommandBuffer,
 
 vertex_buffer: buffer.VertexBuffer,
+index_buffer: buffer.IndexBuffer,
 
 image_available_semaphores: []vulkan.VkSemaphore,
 render_finished_semaphores: []vulkan.VkSemaphore,
@@ -107,6 +108,12 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
         command_pool,
         graphics_queue,
     );
+    const index_buffer = try buffer.IndexBuffer.init(
+        physical_device,
+        logical_device,
+        command_pool,
+        graphics_queue,
+    );
 
     const sync_objects = try create_sync_objects(allocator_, logical_device);
 
@@ -132,6 +139,7 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
         .command_buffers = command_buffers,
 
         .vertex_buffer = vertex_buffer,
+        .index_buffer = index_buffer,
 
         .image_available_semaphores = sync_objects.image_available_semaphores,
         .render_finished_semaphores = sync_objects.render_finished_semaphores,
@@ -164,6 +172,7 @@ pub fn deinit(self: *VulkanSystem) void {
     self.swapchain.deinit();
 
     self.vertex_buffer.deinit(self.logical_device);
+    self.index_buffer.deinit(self.logical_device);
 
     vulkan.vkDestroyDevice(self.logical_device, null);
 
@@ -953,6 +962,8 @@ fn record_command_buffer(self: *VulkanSystem, command_buffer: vulkan.VkCommandBu
     const offsets = [_]vulkan.VkDeviceSize{0};
     vulkan.vkCmdBindVertexBuffers(command_buffer, 0, 1, vertex_buffers[0..].ptr, offsets[0..].ptr);
 
+    vulkan.vkCmdBindIndexBuffer(command_buffer, self.index_buffer.buffer.buffer, 0, vulkan.VK_INDEX_TYPE_UINT16);
+
     const viewport = vulkan.VkViewport{
         .x = 0.0,
         .y = 0.0,
@@ -969,7 +980,7 @@ fn record_command_buffer(self: *VulkanSystem, command_buffer: vulkan.VkCommandBu
     };
     vulkan.vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 
-    vulkan.vkCmdDraw(command_buffer, @intCast(self.vertex_buffer.buffer.len), 1, 0, 0);
+    vulkan.vkCmdDrawIndexed(command_buffer, @intCast(self.index_buffer.len), 1, 0, 0, 0);
 
     // --- End render pass.
 

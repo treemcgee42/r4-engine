@@ -33,15 +33,21 @@ pub const Vertex = struct {
 
 pub const vertices = [_]Vertex{
     Vertex{
-        .position = Math.Vec2f.init(0.0, -0.5),
-        .color = Math.Vec3f.init(1.0, 1.0, 1.0),
+        .position = Math.Vec2f.init(-0.5, -0.5),
+        .color = Math.Vec3f.init(1.0, 0.0, 1.0),
     },
     Vertex{
-        .position = Math.Vec2f.init(0.5, 0.5),
+        .position = Math.Vec2f.init(0.5, -0.5),
         .color = Math.Vec3f.init(0.0, 1.0, 0.0),
     },
     Vertex{
-        .position = Math.Vec2f.init(-0.5, 0.5),
+        .position = Math.Vec2f.init(0.5, 0.5),
         .color = Math.Vec3f.init(0.0, 0.0, 1.0),
     },
+    Vertex{
+        .position = Math.Vec2f.init(-0.5, 0.5),
+        .color = Math.Vec3f.init(1.0, 1.0, 1.0),
+    },
 };
+
+pub const indices = [_]u16{ 0, 1, 2, 2, 3, 0 };

@@ -267,3 +267,70 @@ pub const VertexBuffer = struct {
         self.buffer.deinit(device);
     }
 };
+
+pub const IndexBuffer = struct {
+    buffer: Buffer,
+    len: usize,
+
+    pub fn init(
+        physical_device: vulkan.VkPhysicalDevice,
+        device: vulkan.VkDevice,
+        command_pool: vulkan.VkCommandPool,
+        graphics_queue: vulkan.VkQueue,
+    ) VulkanError!IndexBuffer {
+        const buffer_size = @sizeOf(@TypeOf(Vertex.indices[0])) * Vertex.indices.len;
+
+        // --- Staging buffer.
+
+        const staging_buffer = try Buffer.init(
+            physical_device,
+            device,
+            buffer_size,
+            vulkan.VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            vulkan.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | vulkan.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        );
+        defer staging_buffer.deinit(device);
+
+        // --- Copy data to staging buffer.
+
+        var data: ?*anyopaque = undefined;
+        var result = vulkan.vkMapMemory(device, staging_buffer.buffer_memory, 0, buffer_size, 0, &data);
+        if (result != vulkan.VK_SUCCESS) {
+            switch (result) {
+                vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+                vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+                else => unreachable,
+            }
+        }
+
+        _ = c_string.memcpy(data, @ptrCast(Vertex.indices[0..].ptr), @intCast(buffer_size));
+
+        vulkan.vkUnmapMemory(device, staging_buffer.buffer_memory);
+
+        // --- Create GPU local buffer.
+
+        const buffer = try Buffer.init(
+            physical_device,
+            device,
+            buffer_size,
+            vulkan.VK_BUFFER_USAGE_TRANSFER_DST_BIT | vulkan.VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+            vulkan.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        );
+        errdefer buffer.deinit(device);
+
+        // --- Copy data from staging buffer to GPU local buffer.
+
+        try Buffer.copy(device, command_pool, graphics_queue, staging_buffer, buffer, buffer_size);
+
+        // ---
+
+        return .{
+            .buffer = buffer,
+            .len = Vertex.indices.len,
+        };
+    }
+
+    pub fn deinit(self: IndexBuffer, device: vulkan.VkDevice) void {
+        self.buffer.deinit(device);
+    }
+};
