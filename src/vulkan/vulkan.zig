@@ -156,6 +156,7 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
         descriptor_set_layout,
         descriptor_pool,
         uniform_buffers,
+        texture_image,
     );
 
     const sync_objects = try create_sync_objects(allocator_, logical_device);
@@ -1149,10 +1150,20 @@ fn create_descriptor_set_layout(device: vulkan.VkDevice) VulkanError!vulkan.VkDe
         .pImmutableSamplers = null,
     };
 
+    const sampler_layout_binding = vulkan.VkDescriptorSetLayoutBinding{
+        .binding = 1,
+        .descriptorCount = 1,
+        .descriptorType = vulkan.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        .pImmutableSamplers = null,
+        .stageFlags = vulkan.VK_SHADER_STAGE_FRAGMENT_BIT,
+    };
+
+    const bindings = [_]vulkan.VkDescriptorSetLayoutBinding{ ubo_layout_binding, sampler_layout_binding };
+
     var layout_info = vulkan.VkDescriptorSetLayoutCreateInfo{
         .sType = vulkan.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .bindingCount = 1,
-        .pBindings = &ubo_layout_binding,
+        .bindingCount = bindings.len,
+        .pBindings = bindings[0..].ptr,
 
         .pNext = null,
         .flags = 0,
@@ -1206,15 +1217,21 @@ fn update_uniform_buffer(self: *VulkanSystem, current_image_idx: usize) void {
 }
 
 fn create_descriptor_pool(device: vulkan.VkDevice) VulkanError!vulkan.VkDescriptorPool {
-    const pool_size = vulkan.VkDescriptorPoolSize{
-        .type = vulkan.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-        .descriptorCount = @intCast(max_frames_in_flight),
+    const pool_sizes = [_]vulkan.VkDescriptorPoolSize{
+        .{
+            .type = vulkan.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .descriptorCount = @intCast(max_frames_in_flight),
+        },
+        .{
+            .type = vulkan.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = @intCast(max_frames_in_flight),
+        },
     };
 
     const pool_info = vulkan.VkDescriptorPoolCreateInfo{
         .sType = vulkan.VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-        .poolSizeCount = 1,
-        .pPoolSizes = &pool_size,
+        .poolSizeCount = pool_sizes.len,
+        .pPoolSizes = pool_sizes[0..].ptr,
         .maxSets = @intCast(max_frames_in_flight),
 
         .pNext = null,
@@ -1240,6 +1257,7 @@ fn create_descriptor_sets(
     descriptor_set_layout: vulkan.VkDescriptorSetLayout,
     descriptor_pool: vulkan.VkDescriptorPool,
     uniform_buffers: buffer.UniformBuffers,
+    texture: buffer.TextureImage,
 ) VulkanError![]vulkan.VkDescriptorSet {
     var layouts: [max_frames_in_flight]vulkan.VkDescriptorSetLayout = undefined;
     var i: usize = 0;
@@ -1270,6 +1288,8 @@ fn create_descriptor_sets(
 
     i = 0;
     while (i < max_frames_in_flight) : (i += 1) {
+        // --- UBO.
+
         const buffer_info = vulkan.VkDescriptorBufferInfo{
             .buffer = uniform_buffers.buffers[i].buffer,
             .offset = 0,
@@ -1289,7 +1309,32 @@ fn create_descriptor_sets(
             .pTexelBufferView = null,
         };
 
-        vulkan.vkUpdateDescriptorSets(device, 1, &descriptor_write, 0, null);
+        // --- Texture.
+
+        const image_info = vulkan.VkDescriptorImageInfo{
+            .imageLayout = vulkan.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            .imageView = texture.image_view,
+            .sampler = texture.sampler,
+        };
+
+        const texture_descriptor_write = vulkan.VkWriteDescriptorSet{
+            .sType = vulkan.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = descriptor_sets[i],
+            .dstBinding = 1,
+            .dstArrayElement = 0,
+
+            .descriptorCount = 1,
+            .descriptorType = vulkan.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .pImageInfo = &image_info,
+            .pBufferInfo = null,
+            .pTexelBufferView = null,
+        };
+
+        // ---
+
+        const descriptor_writes = [_]vulkan.VkWriteDescriptorSet{ descriptor_write, texture_descriptor_write };
+
+        vulkan.vkUpdateDescriptorSets(device, descriptor_writes.len, descriptor_writes[0..].ptr, 0, null);
     }
 
     return descriptor_sets;
