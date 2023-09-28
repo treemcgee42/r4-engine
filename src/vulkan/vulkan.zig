@@ -42,6 +42,8 @@ uniform_buffers: buffer.UniformBuffers,
 descriptor_pool: vulkan.VkDescriptorPool,
 descriptor_sets: []vulkan.VkDescriptorSet,
 
+texture_image: buffer.TextureImage,
+
 image_available_semaphores: []vulkan.VkSemaphore,
 render_finished_semaphores: []vulkan.VkSemaphore,
 in_flight_fences: []vulkan.VkFence,
@@ -60,6 +62,8 @@ pub const VulkanError = error{
     file_not_found,
     file_loading_failed,
     no_suitable_memory_type,
+    image_load_failed,
+    unsupported_layout_transition,
 
     vk_error_out_of_host_memory,
     vk_error_out_of_device_memory,
@@ -118,6 +122,13 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
 
     const command_pool = try create_command_pool(allocator_, physical_device, logical_device, surface);
     const command_buffers = try create_command_buffers(allocator_, logical_device, command_pool);
+
+    const texture_image = try buffer.TextureImage.init(
+        physical_device,
+        logical_device,
+        command_pool,
+        graphics_queue,
+    );
 
     const vertex_buffer = try buffer.VertexBuffer.init(
         physical_device,
@@ -178,6 +189,8 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
         .descriptor_pool = descriptor_pool,
         .descriptor_sets = descriptor_sets,
 
+        .texture_image = texture_image,
+
         .image_available_semaphores = sync_objects.image_available_semaphores,
         .render_finished_semaphores = sync_objects.render_finished_semaphores,
         .in_flight_fences = sync_objects.in_flight_fences,
@@ -208,6 +221,8 @@ pub fn deinit(self: *VulkanSystem) void {
     self.graphics_pipeline.deinit();
     vulkan.vkDestroyRenderPass(self.logical_device, self.render_pass, null);
     self.swapchain.deinit();
+
+    self.texture_image.deinit(self.logical_device);
 
     self.vertex_buffer.deinit(self.logical_device);
     self.index_buffer.deinit(self.logical_device);

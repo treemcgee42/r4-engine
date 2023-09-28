@@ -51,6 +51,13 @@ pub fn build(b: *std.Build) void {
     exe.linkSystemLibrary("vulkan.1.3.261");
     exe.addIncludePath(.{ .path = "/Users/ogmalladii/VulkanSDK/1.3.261.1/macOS/include" });
 
+    // STB_IMAGE.
+    exe.addIncludePath(.{ .path = "./external/stb_image" });
+    exe.addCSourceFile(.{
+        .file = .{ .path = "./external/stb_image/stb_image_impl.c" },
+        .flags = &[_][]const u8{},
+    });
+
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
     // step when running `zig build`).

@@ -1,5 +1,6 @@
 .DS_STORE
-external/cglm-0.9.1/*
+external/
+textures/
 zig-cache/
 zig-out/
 .task/

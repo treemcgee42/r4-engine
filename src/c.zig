@@ -18,6 +18,12 @@ pub const vulkan = struct {
     });
 };
 
+pub const stb_image = struct {
+    pub usingnamespace @cImport({
+        @cInclude("stb_image.h");
+    });
+};
+
 const c_string = @cImport({
     @cInclude("string.h");
 });
