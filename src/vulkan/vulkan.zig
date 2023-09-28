@@ -37,7 +37,10 @@ command_buffers: []vulkan.VkCommandBuffer,
 
 vertex_buffer: buffer.VertexBuffer,
 index_buffer: buffer.IndexBuffer,
+
 uniform_buffers: buffer.UniformBuffers,
+descriptor_pool: vulkan.VkDescriptorPool,
+descriptor_sets: []vulkan.VkDescriptorSet,
 
 image_available_semaphores: []vulkan.VkSemaphore,
 render_finished_semaphores: []vulkan.VkSemaphore,
@@ -128,11 +131,20 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
         command_pool,
         graphics_queue,
     );
+
     const uniform_buffers = try buffer.UniformBuffers.init(
         allocator_,
         physical_device,
         logical_device,
         max_frames_in_flight,
+    );
+    const descriptor_pool = try create_descriptor_pool(logical_device);
+    const descriptor_sets = try create_descriptor_sets(
+        allocator_,
+        logical_device,
+        descriptor_set_layout,
+        descriptor_pool,
+        uniform_buffers,
     );
 
     const sync_objects = try create_sync_objects(allocator_, logical_device);
@@ -161,7 +173,10 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
 
         .vertex_buffer = vertex_buffer,
         .index_buffer = index_buffer,
+
         .uniform_buffers = uniform_buffers,
+        .descriptor_pool = descriptor_pool,
+        .descriptor_sets = descriptor_sets,
 
         .image_available_semaphores = sync_objects.image_available_semaphores,
         .render_finished_semaphores = sync_objects.render_finished_semaphores,
@@ -188,18 +203,19 @@ pub fn deinit(self: *VulkanSystem) void {
     self.allocator.free(self.in_flight_fences);
 
     vulkan.vkDestroyCommandPool(self.logical_device, self.command_pool, null);
-
     self.allocator.free(self.command_buffers);
 
     self.graphics_pipeline.deinit();
     vulkan.vkDestroyRenderPass(self.logical_device, self.render_pass, null);
     self.swapchain.deinit();
 
-    vulkan.vkDestroyDescriptorSetLayout(self.logical_device, self.descriptor_set_layout, null);
-
     self.vertex_buffer.deinit(self.logical_device);
     self.index_buffer.deinit(self.logical_device);
+
     self.uniform_buffers.deinit(self.logical_device);
+    vulkan.vkDestroyDescriptorPool(self.logical_device, self.descriptor_pool, null);
+    self.allocator.free(self.descriptor_sets);
+    vulkan.vkDestroyDescriptorSetLayout(self.logical_device, self.descriptor_set_layout, null);
 
     vulkan.vkDestroyDevice(self.logical_device, null);
 
@@ -264,7 +280,7 @@ pub fn draw_frame(self: *VulkanSystem) VulkanError!void {
 
     // --- Update uniform buffers.
 
-    self.update_uniform_buffer(image_index);
+    self.update_uniform_buffer(self.current_frame);
 
     // --- Submit command buffer.
 
@@ -1011,6 +1027,17 @@ fn record_command_buffer(self: *VulkanSystem, command_buffer: vulkan.VkCommandBu
     };
     vulkan.vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 
+    vulkan.vkCmdBindDescriptorSets(
+        command_buffer,
+        vulkan.VK_PIPELINE_BIND_POINT_GRAPHICS,
+        self.graphics_pipeline.pipeline_layout,
+        0,
+        1,
+        &self.descriptor_sets[self.current_frame],
+        0,
+        null,
+    );
+
     vulkan.vkCmdDrawIndexed(command_buffer, @intCast(self.index_buffer.len), 1, 0, 0, 0);
 
     // --- End render pass.
@@ -1157,4 +1184,94 @@ fn update_uniform_buffer(self: *VulkanSystem, current_image_idx: usize) void {
     };
 
     _ = c_memcpy(self.uniform_buffers.buffers_mapped[current_image_idx], &ubo, @sizeOf(@TypeOf(ubo)));
+}
+
+fn create_descriptor_pool(device: vulkan.VkDevice) VulkanError!vulkan.VkDescriptorPool {
+    const pool_size = vulkan.VkDescriptorPoolSize{
+        .type = vulkan.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .descriptorCount = @intCast(max_frames_in_flight),
+    };
+
+    const pool_info = vulkan.VkDescriptorPoolCreateInfo{
+        .sType = vulkan.VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .poolSizeCount = 1,
+        .pPoolSizes = &pool_size,
+        .maxSets = @intCast(max_frames_in_flight),
+
+        .pNext = null,
+        .flags = 0,
+    };
+
+    var descriptor_pool: vulkan.VkDescriptorPool = undefined;
+    var result = vulkan.vkCreateDescriptorPool(device, &pool_info, null, &descriptor_pool);
+    if (result != vulkan.VK_SUCCESS) {
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+            else => unreachable,
+        }
+    }
+
+    return descriptor_pool;
+}
+
+fn create_descriptor_sets(
+    allocator: std.mem.Allocator,
+    device: vulkan.VkDevice,
+    descriptor_set_layout: vulkan.VkDescriptorSetLayout,
+    descriptor_pool: vulkan.VkDescriptorPool,
+    uniform_buffers: buffer.UniformBuffers,
+) VulkanError![]vulkan.VkDescriptorSet {
+    var layouts: [max_frames_in_flight]vulkan.VkDescriptorSetLayout = undefined;
+    var i: usize = 0;
+    while (i < max_frames_in_flight) : (i += 1) {
+        layouts[i] = descriptor_set_layout;
+    }
+
+    const alloc_info = vulkan.VkDescriptorSetAllocateInfo{
+        .sType = vulkan.VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .descriptorPool = descriptor_pool,
+        .descriptorSetCount = max_frames_in_flight,
+        .pSetLayouts = layouts[0..].ptr,
+
+        .pNext = null,
+    };
+
+    var descriptor_sets = try allocator.alloc(vulkan.VkDescriptorSet, max_frames_in_flight);
+    errdefer allocator.free(descriptor_sets);
+
+    var result = vulkan.vkAllocateDescriptorSets(device, &alloc_info, descriptor_sets[0..].ptr);
+    if (result != vulkan.VK_SUCCESS) {
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+            else => unreachable,
+        }
+    }
+
+    i = 0;
+    while (i < max_frames_in_flight) : (i += 1) {
+        const buffer_info = vulkan.VkDescriptorBufferInfo{
+            .buffer = uniform_buffers.buffers[i].buffer,
+            .offset = 0,
+            .range = @sizeOf(vertex.UniformBufferObject),
+        };
+
+        const descriptor_write = vulkan.VkWriteDescriptorSet{
+            .sType = vulkan.VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstSet = descriptor_sets[i],
+            .dstBinding = 0,
+            .dstArrayElement = 0,
+
+            .descriptorCount = 1,
+            .descriptorType = vulkan.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .pImageInfo = null,
+            .pBufferInfo = &buffer_info,
+            .pTexelBufferView = null,
+        };
+
+        vulkan.vkUpdateDescriptorSets(device, 1, &descriptor_write, 0, null);
+    }
+
+    return descriptor_sets;
 }

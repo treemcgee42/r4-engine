@@ -366,6 +366,8 @@ pub const UniformBuffers = struct {
             );
             errdefer buffer.deinit(device);
 
+            buffers[i] = buffer;
+
             // --- Persistently map buffers.
 
             var result = vulkan.vkMapMemory(device, buffer.buffer_memory, 0, buffer_size, 0, &buffers_mapped[i]);

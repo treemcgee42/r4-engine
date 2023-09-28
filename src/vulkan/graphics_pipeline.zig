@@ -113,7 +113,7 @@ pub fn init(
         .polygonMode = vulkan.VK_POLYGON_MODE_FILL,
         .lineWidth = 1.0,
         .cullMode = vulkan.VK_CULL_MODE_BACK_BIT,
-        .frontFace = vulkan.VK_FRONT_FACE_CLOCKWISE,
+        .frontFace = vulkan.VK_FRONT_FACE_COUNTER_CLOCKWISE,
         .depthBiasEnable = vulkan.VK_FALSE,
         .pNext = null,
         .flags = 0,
