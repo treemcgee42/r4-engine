@@ -333,6 +333,8 @@ pub const UniformBuffers = struct {
 
 pub const TextureImage = struct {
     image: VulkanImage,
+    image_view: vulkan.VkImageView,
+    sampler: vulkan.VkSampler,
 
     pub fn init(
         physical_device: vulkan.VkPhysicalDevice,
@@ -340,6 +342,30 @@ pub const TextureImage = struct {
         command_pool: vulkan.VkCommandPool,
         graphics_queue: vulkan.VkQueue,
     ) VulkanError!TextureImage {
+        var image = try create_texture_image(
+            physical_device,
+            device,
+            command_pool,
+            graphics_queue,
+        );
+
+        const image_view = try create_texture_image_view(device, &image);
+
+        const sampler = try create_texture_sampler(physical_device, device);
+
+        return .{
+            .image = image,
+            .image_view = image_view,
+            .sampler = sampler,
+        };
+    }
+
+    fn create_texture_image(
+        physical_device: vulkan.VkPhysicalDevice,
+        device: vulkan.VkDevice,
+        command_pool: vulkan.VkCommandPool,
+        graphics_queue: vulkan.VkQueue,
+    ) VulkanError!VulkanImage {
         var tex_width: c_int = undefined;
         var tex_height: c_int = undefined;
         var tex_channels: c_int = undefined;
@@ -429,12 +455,54 @@ pub const TextureImage = struct {
 
         // ---
 
-        return .{
-            .image = image,
+        return image;
+    }
+
+    fn create_texture_image_view(device: vulkan.VkDevice, texture_image: *VulkanImage) VulkanError!vulkan.VkImageView {
+        const image_view = try texture_image.create_image_view(device);
+
+        return image_view;
+    }
+
+    fn create_texture_sampler(physical_device: vulkan.VkPhysicalDevice, device: vulkan.VkDevice) VulkanError!vulkan.VkSampler {
+        var properties: vulkan.VkPhysicalDeviceProperties = undefined;
+        vulkan.vkGetPhysicalDeviceProperties(physical_device, &properties);
+
+        const sampler_info = vulkan.VkSamplerCreateInfo{
+            .sType = vulkan.VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+            .magFilter = vulkan.VK_FILTER_LINEAR,
+            .minFilter = vulkan.VK_FILTER_LINEAR,
+            .addressModeU = vulkan.VK_SAMPLER_ADDRESS_MODE_REPEAT,
+            .addressModeV = vulkan.VK_SAMPLER_ADDRESS_MODE_REPEAT,
+            .addressModeW = vulkan.VK_SAMPLER_ADDRESS_MODE_REPEAT,
+            .anisotropyEnable = vulkan.VK_TRUE,
+            .maxAnisotropy = properties.limits.maxSamplerAnisotropy,
+            .borderColor = vulkan.VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+            .unnormalizedCoordinates = vulkan.VK_FALSE,
+            .compareEnable = vulkan.VK_FALSE,
+            .compareOp = vulkan.VK_COMPARE_OP_ALWAYS,
+            .mipmapMode = vulkan.VK_SAMPLER_MIPMAP_MODE_LINEAR,
+            .mipLodBias = 0.0,
+            .minLod = 0.0,
+            .maxLod = 0.0,
         };
+
+        var sampler: vulkan.VkSampler = undefined;
+        var result = vulkan.vkCreateSampler(device, &sampler_info, null, &sampler);
+        if (result != vulkan.VK_SUCCESS) {
+            switch (result) {
+                vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+                vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+                else => unreachable,
+            }
+        }
+
+        return sampler;
     }
 
     pub fn deinit(self: TextureImage, device: vulkan.VkDevice) void {
+        vulkan.vkDestroySampler(device, self.sampler, null);
+        vulkan.vkDestroyImageView(device, self.image_view, null);
         self.image.deinit(device);
     }
 };
@@ -586,6 +654,43 @@ const VulkanImage = struct {
         );
 
         try cbuf.end_single_time_commands(device, command_pool, graphics_queue, command_buffer);
+    }
+
+    pub fn create_image_view(self: *VulkanImage, device: vulkan.VkDevice) VulkanError!vulkan.VkImageView {
+        const view_info = vulkan.VkImageViewCreateInfo{
+            .sType = vulkan.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+            .image = self.image,
+            .viewType = vulkan.VK_IMAGE_VIEW_TYPE_2D,
+            .format = self.format,
+            .subresourceRange = vulkan.VkImageSubresourceRange{
+                .aspectMask = vulkan.VK_IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            },
+
+            .components = .{
+                .r = vulkan.VK_COMPONENT_SWIZZLE_IDENTITY,
+                .g = vulkan.VK_COMPONENT_SWIZZLE_IDENTITY,
+                .b = vulkan.VK_COMPONENT_SWIZZLE_IDENTITY,
+                .a = vulkan.VK_COMPONENT_SWIZZLE_IDENTITY,
+            },
+            .pNext = null,
+            .flags = 0,
+        };
+
+        var image_view: vulkan.VkImageView = undefined;
+        var result = vulkan.vkCreateImageView(device, &view_info, null, &image_view);
+        if (result != vulkan.VK_SUCCESS) {
+            switch (result) {
+                vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+                vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+                else => unreachable,
+            }
+        }
+
+        return image_view;
     }
 
     fn transition_image_layout(

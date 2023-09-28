@@ -541,7 +541,10 @@ fn is_device_suitable(device: vulkan.VkPhysicalDevice, allocator_: std.mem.Alloc
         swapchain_supported = swapchain_support.formats.items.len > 0 and swapchain_support.present_modes.items.len > 0;
     }
 
-    return indices.is_complete() and extensions_supported and swapchain_supported;
+    var supported_features: vulkan.VkPhysicalDeviceFeatures = undefined;
+    vulkan.vkGetPhysicalDeviceFeatures(device, &supported_features);
+
+    return indices.is_complete() and extensions_supported and swapchain_supported and (supported_features.samplerAnisotropy == vulkan.VK_TRUE);
 }
 
 fn check_device_extension_support(device: vulkan.VkPhysicalDevice, allocator_: std.mem.Allocator) VulkanError!bool {
@@ -681,6 +684,8 @@ fn create_logical_device(physical_device: vulkan.VkPhysicalDevice, allocator_: s
     }
 
     const device_features: vulkan.VkPhysicalDeviceFeatures = .{
+        .samplerAnisotropy = vulkan.VK_TRUE,
+
         .robustBufferAccess = vulkan.VK_FALSE,
         .fullDrawIndexUint32 = vulkan.VK_FALSE,
         .imageCubeArray = vulkan.VK_FALSE,
@@ -700,7 +705,6 @@ fn create_logical_device(physical_device: vulkan.VkPhysicalDevice, allocator_: s
         .largePoints = vulkan.VK_FALSE,
         .alphaToOne = vulkan.VK_FALSE,
         .multiViewport = vulkan.VK_FALSE,
-        .samplerAnisotropy = vulkan.VK_FALSE,
         .textureCompressionETC2 = vulkan.VK_FALSE,
         .textureCompressionASTC_LDR = vulkan.VK_FALSE,
         .textureCompressionBC = vulkan.VK_FALSE,
