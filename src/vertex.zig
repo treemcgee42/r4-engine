@@ -2,7 +2,7 @@ const math = @import("math.zig");
 const vulkan = @import("c.zig").vulkan;
 
 pub const Vertex = struct {
-    position: math.Vec2f,
+    position: math.Vec3f,
     color: math.Vec3f,
     tex_coord: math.Vec2f,
 
@@ -19,7 +19,7 @@ pub const Vertex = struct {
             .{
                 .binding = 0,
                 .location = 0,
-                .format = vulkan.VK_FORMAT_R32G32_SFLOAT,
+                .format = vulkan.VK_FORMAT_R32G32B32_SFLOAT,
                 .offset = @offsetOf(Vertex, "position"),
             },
             .{
@@ -40,28 +40,52 @@ pub const Vertex = struct {
 
 pub const vertices = [_]Vertex{
     Vertex{
-        .position = math.Vec2f.init(-0.5, -0.5),
+        .position = math.Vec3f.init(-0.5, -0.5, 0.0),
         .color = math.Vec3f.init(1.0, 0.0, 1.0),
         .tex_coord = math.Vec2f.init(1.0, 0.0),
     },
     Vertex{
-        .position = math.Vec2f.init(0.5, -0.5),
+        .position = math.Vec3f.init(0.5, -0.5, 0.0),
         .color = math.Vec3f.init(0.0, 1.0, 0.0),
         .tex_coord = math.Vec2f.init(0.0, 0.0),
     },
     Vertex{
-        .position = math.Vec2f.init(0.5, 0.5),
+        .position = math.Vec3f.init(0.5, 0.5, 0.0),
         .color = math.Vec3f.init(0.0, 0.0, 1.0),
         .tex_coord = math.Vec2f.init(0.0, 1.0),
     },
     Vertex{
-        .position = math.Vec2f.init(-0.5, 0.5),
+        .position = math.Vec3f.init(-0.5, 0.5, 0.0),
+        .color = math.Vec3f.init(1.0, 1.0, 1.0),
+        .tex_coord = math.Vec2f.init(1.0, 1.0),
+    },
+
+    Vertex{
+        .position = math.Vec3f.init(-0.5, -0.5, -0.5),
+        .color = math.Vec3f.init(1.0, 0.0, 1.0),
+        .tex_coord = math.Vec2f.init(1.0, 0.0),
+    },
+    Vertex{
+        .position = math.Vec3f.init(0.5, -0.5, -0.5),
+        .color = math.Vec3f.init(0.0, 1.0, 0.0),
+        .tex_coord = math.Vec2f.init(0.0, 0.0),
+    },
+    Vertex{
+        .position = math.Vec3f.init(0.5, 0.5, -0.5),
+        .color = math.Vec3f.init(0.0, 0.0, 1.0),
+        .tex_coord = math.Vec2f.init(0.0, 1.0),
+    },
+    Vertex{
+        .position = math.Vec3f.init(-0.5, 0.5, -0.5),
         .color = math.Vec3f.init(1.0, 1.0, 1.0),
         .tex_coord = math.Vec2f.init(1.0, 1.0),
     },
 };
 
-pub const indices = [_]u16{ 0, 1, 2, 2, 3, 0 };
+pub const indices = [_]u16{
+    0, 1, 2, 2, 3, 0, 4, //
+    5, 6, 6, 7, 4,
+};
 
 pub const UniformBufferObject = struct {
     model: math.Mat4f,

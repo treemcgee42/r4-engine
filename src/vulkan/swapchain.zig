@@ -3,6 +3,7 @@ const vulkan = @import("../c.zig").vulkan;
 const glfw = @import("../c.zig").glfw;
 const VulkanError = @import("./vulkan.zig").VulkanError;
 const find_queue_families = @import("./vulkan.zig").find_queue_families;
+const buffer = @import("./buffer.zig");
 
 allocator: std.mem.Allocator,
 
@@ -18,6 +19,7 @@ swapchain_image_format: vulkan.VkFormat,
 swapchain_extent: vulkan.VkExtent2D,
 swapchain_image_views: []vulkan.VkImageView,
 
+depth_image: buffer.DepthImage,
 framebuffers: []vulkan.VkFramebuffer,
 
 const Swapchain = @This();
@@ -43,12 +45,21 @@ pub fn init(
         swapchain_info.images,
         swapchain_info.image_format,
     );
+
+    const depth_image = try buffer.DepthImage.init(
+        physical_device,
+        logical_device,
+        swapchain_info.extent.width,
+        swapchain_info.extent.height,
+    );
+
     const framebuffers = try create_framebuffers(
         allocator_,
         logical_device,
         swapchain_image_views,
         swapchain_info.extent,
         render_pass,
+        depth_image,
     );
 
     return .{
@@ -66,11 +77,14 @@ pub fn init(
         .swapchain_extent = swapchain_info.extent,
         .swapchain_image_views = swapchain_image_views,
 
+        .depth_image = depth_image,
         .framebuffers = framebuffers,
     };
 }
 
 pub fn deinit(self: Swapchain) void {
+    self.depth_image.deinit(self.logical_device);
+
     var i: usize = 0;
     while (i < self.framebuffers.len) : (i += 1) {
         vulkan.vkDestroyFramebuffer(self.logical_device, self.framebuffers[i], null);
@@ -174,6 +188,8 @@ pub fn recreate_swapchain(self: *Swapchain, swapchain_settings: SwapchainSetting
 
     // --- Cleanup.
 
+    self.depth_image.deinit(self.logical_device);
+
     var i: usize = 0;
     while (i < self.framebuffers.len) : (i += 1) {
         vulkan.vkDestroyFramebuffer(self.logical_device, self.framebuffers[i], null);
@@ -200,12 +216,21 @@ pub fn recreate_swapchain(self: *Swapchain, swapchain_settings: SwapchainSetting
         swapchain_info.images,
         swapchain_info.image_format,
     );
+
+    const depth_image = try buffer.DepthImage.init(
+        self.physical_device,
+        self.logical_device,
+        swapchain_info.extent.width,
+        swapchain_info.extent.height,
+    );
+
     const framebuffers = try create_framebuffers(
         self.allocator,
         self.logical_device,
         swapchain_image_views,
         swapchain_info.extent,
         self.render_pass,
+        depth_image,
     );
 
     self.swapchain = swapchain_info.swapchain;
@@ -214,6 +239,7 @@ pub fn recreate_swapchain(self: *Swapchain, swapchain_settings: SwapchainSetting
     self.swapchain_extent = swapchain_info.extent;
     self.swapchain_image_views = swapchain_image_views;
 
+    self.depth_image = depth_image;
     self.framebuffers = framebuffers;
 }
 
@@ -461,6 +487,7 @@ fn create_framebuffers(
     swapchain_image_views: []vulkan.VkImageView,
     swapchain_extent: vulkan.VkExtent2D,
     render_pass: vulkan.VkRenderPass,
+    depth_image: buffer.DepthImage,
 ) VulkanError![]vulkan.VkFramebuffer {
     var framebuffers = try allocator_.alloc(vulkan.VkFramebuffer, swapchain_image_views.len);
     errdefer allocator_.free(framebuffers);
@@ -469,6 +496,7 @@ fn create_framebuffers(
     while (i < swapchain_image_views.len) : (i += 1) {
         const attachments = [_]vulkan.VkImageView{
             swapchain_image_views[i],
+            depth_image.image_view,
         };
 
         var framebuffer_info = vulkan.VkFramebufferCreateInfo{

@@ -26,6 +26,33 @@ fn find_memory_type(
     return VulkanError.no_suitable_memory_type;
 }
 
+fn find_supported_format(
+    physical_device: vulkan.VkPhysicalDevice,
+    candidates: []const vulkan.VkFormat,
+    tiling: vulkan.VkImageTiling,
+    features: vulkan.VkFormatFeatureFlags,
+) VulkanError!vulkan.VkFormat {
+    var i: usize = 0;
+    while (i < candidates.len) : (i += 1) {
+        const format: vulkan.VkFormat = candidates[i];
+
+        var properties: vulkan.VkFormatProperties = undefined;
+        vulkan.vkGetPhysicalDeviceFormatProperties(physical_device, format, &properties);
+
+        if ((tiling == vulkan.VK_IMAGE_TILING_LINEAR) and
+            ((properties.linearTilingFeatures & features) == features))
+        {
+            return format;
+        } else if ((tiling == vulkan.VK_IMAGE_TILING_OPTIMAL) and
+            ((properties.optimalTilingFeatures & features) == features))
+        {
+            return format;
+        }
+    }
+
+    return VulkanError.no_supported_format;
+}
+
 const Buffer = struct {
     len: usize,
     buffer: vulkan.VkBuffer,
@@ -459,7 +486,7 @@ pub const TextureImage = struct {
     }
 
     fn create_texture_image_view(device: vulkan.VkDevice, texture_image: *VulkanImage) VulkanError!vulkan.VkImageView {
-        const image_view = try texture_image.create_image_view(device);
+        const image_view = try texture_image.create_image_view(device, vulkan.VK_IMAGE_ASPECT_COLOR_BIT);
 
         return image_view;
     }
@@ -504,6 +531,58 @@ pub const TextureImage = struct {
         vulkan.vkDestroySampler(device, self.sampler, null);
         vulkan.vkDestroyImageView(device, self.image_view, null);
         self.image.deinit(device);
+    }
+};
+
+pub const DepthImage = struct {
+    image: VulkanImage,
+    image_view: vulkan.VkImageView,
+
+    pub fn init(physical_device: vulkan.VkPhysicalDevice, device: vulkan.VkDevice, width: u32, height: u32) VulkanError!DepthImage {
+        const depth_format = try find_depth_format(physical_device);
+
+        var depth_image = try VulkanImage.init(
+            physical_device,
+            device,
+            width,
+            height,
+            depth_format,
+            vulkan.VK_IMAGE_TILING_OPTIMAL,
+            vulkan.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+            vulkan.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        );
+        errdefer depth_image.deinit(device);
+
+        const depth_image_view = try depth_image.create_image_view(device, vulkan.VK_IMAGE_ASPECT_DEPTH_BIT);
+
+        return .{
+            .image = depth_image,
+            .image_view = depth_image_view,
+        };
+    }
+
+    pub fn deinit(self: DepthImage, device: vulkan.VkDevice) void {
+        vulkan.vkDestroyImageView(device, self.image_view, null);
+        self.image.deinit(device);
+    }
+
+    pub fn find_depth_format(physical_device: vulkan.VkPhysicalDevice) VulkanError!vulkan.VkFormat {
+        const to_return = try find_supported_format(
+            physical_device,
+            &[_]vulkan.VkFormat{
+                vulkan.VK_FORMAT_D32_SFLOAT,
+                vulkan.VK_FORMAT_D32_SFLOAT_S8_UINT,
+                vulkan.VK_FORMAT_D24_UNORM_S8_UINT,
+            },
+            vulkan.VK_IMAGE_TILING_OPTIMAL,
+            vulkan.VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT,
+        );
+
+        return to_return;
+    }
+
+    fn has_stencil_component(format: vulkan.VkFormat) bool {
+        return format == vulkan.VK_FORMAT_D32_SFLOAT_S8_UINT or format == vulkan.VK_FORMAT_D24_UNORM_S8_UINT;
     }
 };
 
@@ -656,14 +735,18 @@ const VulkanImage = struct {
         try cbuf.end_single_time_commands(device, command_pool, graphics_queue, command_buffer);
     }
 
-    pub fn create_image_view(self: *VulkanImage, device: vulkan.VkDevice) VulkanError!vulkan.VkImageView {
+    pub fn create_image_view(
+        self: *VulkanImage,
+        device: vulkan.VkDevice,
+        aspect_flags: vulkan.VkImageAspectFlags,
+    ) VulkanError!vulkan.VkImageView {
         const view_info = vulkan.VkImageViewCreateInfo{
             .sType = vulkan.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
             .image = self.image,
             .viewType = vulkan.VK_IMAGE_VIEW_TYPE_2D,
             .format = self.format,
             .subresourceRange = vulkan.VkImageSubresourceRange{
-                .aspectMask = vulkan.VK_IMAGE_ASPECT_COLOR_BIT,
+                .aspectMask = aspect_flags,
                 .baseMipLevel = 0,
                 .levelCount = 1,
                 .baseArrayLayer = 0,

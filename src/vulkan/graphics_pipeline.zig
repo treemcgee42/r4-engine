@@ -193,6 +193,38 @@ pub fn init(
 
     // -- Pipeline.
 
+    const depth_stencil = vulkan.VkPipelineDepthStencilStateCreateInfo{
+        .sType = vulkan.VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+        .depthTestEnable = vulkan.VK_TRUE,
+        .depthWriteEnable = vulkan.VK_TRUE,
+        .depthCompareOp = vulkan.VK_COMPARE_OP_LESS,
+        .depthBoundsTestEnable = vulkan.VK_FALSE,
+        .minDepthBounds = 0.0,
+        .maxDepthBounds = 1.0,
+        .stencilTestEnable = vulkan.VK_FALSE,
+
+        .front = .{
+            .depthFailOp = vulkan.VK_STENCIL_OP_KEEP,
+            .compareOp = vulkan.VK_COMPARE_OP_ALWAYS,
+            .compareMask = 0,
+            .writeMask = 0,
+            .reference = 0,
+            .passOp = vulkan.VK_STENCIL_OP_KEEP,
+            .failOp = vulkan.VK_STENCIL_OP_KEEP,
+        },
+        .back = .{
+            .depthFailOp = vulkan.VK_STENCIL_OP_KEEP,
+            .compareOp = vulkan.VK_COMPARE_OP_ALWAYS,
+            .compareMask = 0,
+            .writeMask = 0,
+            .reference = 0,
+            .passOp = vulkan.VK_STENCIL_OP_KEEP,
+            .failOp = vulkan.VK_STENCIL_OP_KEEP,
+        },
+        .pNext = null,
+        .flags = 0,
+    };
+
     const pipeline_info = vulkan.VkGraphicsPipelineCreateInfo{
         .sType = vulkan.VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
         .stageCount = shader_stages.len,
@@ -207,13 +239,13 @@ pub fn init(
         .layout = pipeline_layout,
         .renderPass = render_pass,
         .subpass = 0,
+        .pDepthStencilState = &depth_stencil,
 
         .basePipelineHandle = @ptrCast(vulkan.VK_NULL_HANDLE),
         .basePipelineIndex = -1,
         .pNext = null,
         .flags = 0,
         .pTessellationState = null,
-        .pDepthStencilState = null,
     };
 
     var pipeline: vulkan.VkPipeline = undefined;

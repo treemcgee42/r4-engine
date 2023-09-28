@@ -64,6 +64,7 @@ pub const VulkanError = error{
     no_suitable_memory_type,
     image_load_failed,
     unsupported_layout_transition,
+    no_supported_format,
 
     vk_error_out_of_host_memory,
     vk_error_out_of_device_memory,
@@ -108,7 +109,7 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
     vulkan.vkGetDeviceQueue(logical_device, queue_family_indices.present_family.?, 0, &present_queue);
 
     const swapchain_settings = try Swapchain.query_swapchain_settings(allocator_, physical_device, logical_device, surface);
-    const render_pass = try create_render_pass(logical_device, swapchain_settings.surface_format.format);
+    const render_pass = try create_render_pass(physical_device, logical_device, swapchain_settings.surface_format.format);
     const swapchain = try Swapchain.init(allocator_, window, physical_device, logical_device, surface, render_pass);
 
     const descriptor_set_layout = try create_descriptor_set_layout(logical_device);
@@ -850,7 +851,11 @@ fn get_required_extensions(allocator_: std.mem.Allocator) VulkanError!std.ArrayL
     return extensions;
 }
 
-fn create_render_pass(device: vulkan.VkDevice, swap_chain_image_format: vulkan.VkFormat) VulkanError!vulkan.VkRenderPass {
+fn create_render_pass(
+    physical_device: vulkan.VkPhysicalDevice,
+    device: vulkan.VkDevice,
+    swap_chain_image_format: vulkan.VkFormat,
+) VulkanError!vulkan.VkRenderPass {
     const color_attachment = vulkan.VkAttachmentDescription{
         .format = swap_chain_image_format,
         .samples = vulkan.VK_SAMPLE_COUNT_1_BIT,
@@ -864,6 +869,18 @@ fn create_render_pass(device: vulkan.VkDevice, swap_chain_image_format: vulkan.V
         .flags = 0,
     };
 
+    const depth_format = try buffer.DepthImage.find_depth_format(physical_device);
+    const depth_attachment = vulkan.VkAttachmentDescription{
+        .format = depth_format,
+        .samples = vulkan.VK_SAMPLE_COUNT_1_BIT,
+        .loadOp = vulkan.VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp = vulkan.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        .stencilLoadOp = vulkan.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+        .stencilStoreOp = vulkan.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        .initialLayout = vulkan.VK_IMAGE_LAYOUT_UNDEFINED,
+        .finalLayout = vulkan.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+    };
+
     // --- Subpass.
 
     const color_attachment_ref = vulkan.VkAttachmentReference{
@@ -871,16 +888,21 @@ fn create_render_pass(device: vulkan.VkDevice, swap_chain_image_format: vulkan.V
         .layout = vulkan.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
     };
 
+    const depth_attachment_ref = vulkan.VkAttachmentReference{
+        .attachment = 1,
+        .layout = vulkan.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+    };
+
     const subpass = vulkan.VkSubpassDescription{
         .pipelineBindPoint = vulkan.VK_PIPELINE_BIND_POINT_GRAPHICS,
         .colorAttachmentCount = 1,
         .pColorAttachments = &color_attachment_ref,
+        .pDepthStencilAttachment = &depth_attachment_ref,
 
         .flags = 0,
         .inputAttachmentCount = 0,
         .pInputAttachments = null,
         .pResolveAttachments = null,
-        .pDepthStencilAttachment = null,
         .preserveAttachmentCount = 0,
         .pPreserveAttachments = null,
     };
@@ -890,20 +912,22 @@ fn create_render_pass(device: vulkan.VkDevice, swap_chain_image_format: vulkan.V
     const subpass_dependency = vulkan.VkSubpassDependency{
         .srcSubpass = vulkan.VK_SUBPASS_EXTERNAL,
         .dstSubpass = 0,
-        .srcStageMask = vulkan.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .srcStageMask = vulkan.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | vulkan.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
         .srcAccessMask = 0,
-        .dstStageMask = vulkan.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        .dstAccessMask = vulkan.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+        .dstStageMask = vulkan.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | vulkan.VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+        .dstAccessMask = vulkan.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | vulkan.VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
 
         .dependencyFlags = 0,
     };
 
     // ---
 
+    const attachments = [_]vulkan.VkAttachmentDescription{ color_attachment, depth_attachment };
+
     const render_pass_info = vulkan.VkRenderPassCreateInfo{
         .sType = vulkan.VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-        .attachmentCount = 1,
-        .pAttachments = &color_attachment,
+        .attachmentCount = attachments.len,
+        .pAttachments = attachments[0..].ptr,
         .subpassCount = 1,
         .pSubpasses = &subpass,
 
@@ -999,9 +1023,17 @@ fn record_command_buffer(self: *VulkanSystem, command_buffer: vulkan.VkCommandBu
 
     // --- Begin render pass.
 
-    const clear_color: vulkan.VkClearValue = .{
-        .color = .{
-            .float32 = [_]f32{ 0.0, 0.0, 0.0, 1.0 },
+    const clear_values = [_]vulkan.VkClearValue{
+        .{
+            .color = .{
+                .float32 = [_]f32{ 0.0, 0.0, 0.0, 1.0 },
+            },
+        },
+        .{
+            .depthStencil = .{
+                .depth = 1.0,
+                .stencil = 0,
+            },
         },
     };
 
@@ -1013,8 +1045,8 @@ fn record_command_buffer(self: *VulkanSystem, command_buffer: vulkan.VkCommandBu
             .offset = .{ .x = 0, .y = 0 },
             .extent = self.swapchain.swapchain_extent,
         },
-        .clearValueCount = 1,
-        .pClearValues = &clear_color,
+        .clearValueCount = clear_values.len,
+        .pClearValues = clear_values[0..].ptr,
 
         .pNext = null,
     };
