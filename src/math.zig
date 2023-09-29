@@ -1,8 +1,6 @@
 const std = @import("std");
 const cglm = @import("c.zig").cglm;
 
-// hash(self, K) u64 eql(self, K, K)
-
 pub const Vec2f = struct {
     raw: cglm.vec2,
 

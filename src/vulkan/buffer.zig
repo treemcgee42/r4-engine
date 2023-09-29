@@ -382,7 +382,7 @@ pub const TextureImage = struct {
 
         const image_view = try create_texture_image_view(device, &image);
 
-        const sampler = try create_texture_sampler(physical_device, device);
+        const sampler = try create_texture_sampler(physical_device, device, image);
 
         return .{
             .image = image,
@@ -415,6 +415,8 @@ pub const TextureImage = struct {
         defer stb_image.stbi_image_free(pixels);
 
         const image_size: vulkan.VkDeviceSize = @intCast(tex_width * tex_height * 4);
+
+        const mip_levels: u32 = std.math.log2_int(u32, @as(u32, @intCast(@max(tex_width, tex_height)))) + 1;
 
         // --- Staging buffer.
 
@@ -450,9 +452,10 @@ pub const TextureImage = struct {
             device,
             @intCast(tex_width),
             @intCast(tex_height),
+            mip_levels,
             vulkan.VK_FORMAT_R8G8B8A8_SRGB,
             vulkan.VK_IMAGE_TILING_OPTIMAL,
-            vulkan.VK_IMAGE_USAGE_TRANSFER_DST_BIT | vulkan.VK_IMAGE_USAGE_SAMPLED_BIT,
+            vulkan.VK_IMAGE_USAGE_TRANSFER_SRC_BIT | vulkan.VK_IMAGE_USAGE_TRANSFER_DST_BIT | vulkan.VK_IMAGE_USAGE_SAMPLED_BIT,
             vulkan.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
         );
         errdefer image.deinit(device);
@@ -474,16 +477,10 @@ pub const TextureImage = struct {
             staging_buffer,
         );
 
-        // --- Prepare for shader access.
+        // --- Generate mipmaps.
+        // Also transitions to VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL.
 
-        try image.transition_image_layout(
-            device,
-            command_pool,
-            graphics_queue,
-            vulkan.VK_FORMAT_R8G8B8A8_SRGB,
-            vulkan.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            vulkan.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        );
+        try image.generate_mipmaps(physical_device, device, command_pool, graphics_queue);
 
         // ---
 
@@ -496,7 +493,11 @@ pub const TextureImage = struct {
         return image_view;
     }
 
-    fn create_texture_sampler(physical_device: vulkan.VkPhysicalDevice, device: vulkan.VkDevice) VulkanError!vulkan.VkSampler {
+    fn create_texture_sampler(
+        physical_device: vulkan.VkPhysicalDevice,
+        device: vulkan.VkDevice,
+        image: VulkanImage,
+    ) VulkanError!vulkan.VkSampler {
         var properties: vulkan.VkPhysicalDeviceProperties = undefined;
         vulkan.vkGetPhysicalDeviceProperties(physical_device, &properties);
 
@@ -516,7 +517,7 @@ pub const TextureImage = struct {
             .mipmapMode = vulkan.VK_SAMPLER_MIPMAP_MODE_LINEAR,
             .mipLodBias = 0.0,
             .minLod = 0.0,
-            .maxLod = 0.0,
+            .maxLod = @floatFromInt(image.mip_levels),
         };
 
         var sampler: vulkan.VkSampler = undefined;
@@ -551,6 +552,7 @@ pub const DepthImage = struct {
             device,
             width,
             height,
+            1,
             depth_format,
             vulkan.VK_IMAGE_TILING_OPTIMAL,
             vulkan.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
@@ -596,6 +598,7 @@ const VulkanImage = struct {
     image_memory: vulkan.VkDeviceMemory,
     width: u32,
     height: u32,
+    mip_levels: u32,
     format: vulkan.VkFormat,
     tiling: vulkan.VkImageTiling,
     usage: vulkan.VkImageUsageFlags,
@@ -606,6 +609,7 @@ const VulkanImage = struct {
         device: vulkan.VkDevice,
         width: u32,
         height: u32,
+        mip_levels: u32,
         format: vulkan.VkFormat,
         tiling: vulkan.VkImageTiling,
         usage: vulkan.VkImageUsageFlags,
@@ -619,7 +623,7 @@ const VulkanImage = struct {
                 .height = height,
                 .depth = 1,
             },
-            .mipLevels = 1,
+            .mipLevels = mip_levels,
             .arrayLayers = 1,
             .format = format, // must be same as pixels in buffer.
             .tiling = tiling,
@@ -685,6 +689,7 @@ const VulkanImage = struct {
             .image_memory = image_memory,
             .width = width,
             .height = height,
+            .mip_levels = mip_levels,
             .format = format,
             .tiling = tiling,
             .usage = usage,
@@ -753,7 +758,7 @@ const VulkanImage = struct {
             .subresourceRange = vulkan.VkImageSubresourceRange{
                 .aspectMask = aspect_flags,
                 .baseMipLevel = 0,
-                .levelCount = 1,
+                .levelCount = self.mip_levels,
                 .baseArrayLayer = 0,
                 .layerCount = 1,
             },
@@ -781,6 +786,167 @@ const VulkanImage = struct {
         return image_view;
     }
 
+    pub fn generate_mipmaps(
+        self: *VulkanImage,
+        physical_device: vulkan.VkPhysicalDevice,
+        device: vulkan.VkDevice,
+        command_pool: vulkan.VkCommandPool,
+        graphics_queue: vulkan.VkQueue,
+    ) VulkanError!void {
+        // --- Check if image format supports linear blitting.
+
+        var format_properties: vulkan.VkFormatProperties = undefined;
+        vulkan.vkGetPhysicalDeviceFormatProperties(physical_device, self.format, &format_properties);
+        if (format_properties.optimalTilingFeatures & vulkan.VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT == 0) {
+            return VulkanError.no_supported_format;
+        }
+
+        // ---
+
+        var command_buffer = try cbuf.begin_single_time_commands(device, command_pool);
+
+        var barrier = vulkan.VkImageMemoryBarrier{ .sType = vulkan.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, .image = self.image, .srcQueueFamilyIndex = vulkan.VK_QUEUE_FAMILY_IGNORED, .dstQueueFamilyIndex = vulkan.VK_QUEUE_FAMILY_IGNORED, .subresourceRange = .{
+            .aspectMask = vulkan.VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+            .levelCount = 1,
+        } };
+
+        var mip_width: i32 = @intCast(self.width);
+        var mip_height: i32 = @intCast(self.height);
+
+        var i: usize = 1;
+        while (i < self.mip_levels) : (i += 1) {
+            barrier.subresourceRange.baseMipLevel = @intCast(i - 1);
+            barrier.oldLayout = vulkan.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            barrier.newLayout = vulkan.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            barrier.srcAccessMask = vulkan.VK_ACCESS_TRANSFER_WRITE_BIT;
+            barrier.dstAccessMask = vulkan.VK_ACCESS_TRANSFER_READ_BIT;
+
+            vulkan.vkCmdPipelineBarrier(command_buffer, vulkan.VK_PIPELINE_STAGE_TRANSFER_BIT, vulkan.VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, null, 0, null, 1, &barrier);
+
+            var dst_offset_x: i32 = 1;
+            if (mip_width > 1) {
+                dst_offset_x = @divFloor(mip_width, 2);
+            }
+            var dst_offset_y: i32 = 1;
+            if (mip_height > 1) {
+                dst_offset_y = @divFloor(mip_height, 2);
+            }
+            const blit = vulkan.VkImageBlit{
+                .srcOffsets = [_]vulkan.VkOffset3D{
+                    .{
+                        .x = 0,
+                        .y = 0,
+                        .z = 0,
+                    },
+                    .{
+                        .x = mip_width,
+                        .y = mip_height,
+                        .z = 1,
+                    },
+                },
+                .srcSubresource = .{
+                    .aspectMask = vulkan.VK_IMAGE_ASPECT_COLOR_BIT,
+                    .mipLevel = @intCast(i - 1),
+                    .baseArrayLayer = 0,
+                    .layerCount = 1,
+                },
+                .dstOffsets = [_]vulkan.VkOffset3D{
+                    .{
+                        .x = 0,
+                        .y = 0,
+                        .z = 0,
+                    },
+                    .{
+                        .x = dst_offset_x,
+                        .y = dst_offset_y,
+                        .z = 1,
+                    },
+                },
+                .dstSubresource = .{
+                    .aspectMask = vulkan.VK_IMAGE_ASPECT_COLOR_BIT,
+                    .mipLevel = @intCast(i),
+                    .baseArrayLayer = 0,
+                    .layerCount = 1,
+                },
+            };
+
+            vulkan.vkCmdBlitImage(
+                command_buffer,
+                self.image,
+                vulkan.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                self.image,
+                vulkan.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                1,
+                &blit,
+                vulkan.VK_FILTER_LINEAR,
+            );
+
+            barrier.oldLayout = vulkan.VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            barrier.newLayout = vulkan.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            barrier.srcAccessMask = vulkan.VK_ACCESS_TRANSFER_READ_BIT;
+            barrier.dstAccessMask = vulkan.VK_ACCESS_SHADER_READ_BIT;
+
+            vulkan.vkCmdPipelineBarrier(
+                command_buffer,
+                vulkan.VK_PIPELINE_STAGE_TRANSFER_BIT,
+                vulkan.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                0,
+                0,
+                null,
+                0,
+                null,
+                1,
+                &barrier,
+            );
+
+            if (mip_width > 1) {
+                mip_width = @divFloor(mip_width, 2);
+            }
+            if (mip_height > 1) {
+                mip_height = @divFloor(mip_height, 2);
+            }
+        }
+
+        barrier.subresourceRange.baseMipLevel = self.mip_levels - 1;
+        barrier.oldLayout = vulkan.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.newLayout = vulkan.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.srcAccessMask = vulkan.VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = vulkan.VK_ACCESS_SHADER_READ_BIT;
+
+        vulkan.vkCmdPipelineBarrier(
+            command_buffer,
+            vulkan.VK_PIPELINE_STAGE_TRANSFER_BIT,
+            vulkan.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            0,
+            0,
+            null,
+            0,
+            null,
+            1,
+            &barrier,
+        );
+
+        try cbuf.end_single_time_commands(device, command_pool, graphics_queue, command_buffer);
+    }
+
+    // void generateMipmaps(VkImage image, int32_t texWidth, int32_t texHeight, uint32_t mipLevels) {
+    //     VkCommandBuffer commandBuffer = beginSingleTimeCommands();
+    //
+    //     VkImageMemoryBarrier barrier{};
+    //     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    //     barrier.image = image;
+    //     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    //     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    //     barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    //     barrier.subresourceRange.baseArrayLayer = 0;
+    //     barrier.subresourceRange.layerCount = 1;
+    //     barrier.subresourceRange.levelCount = 1;
+    //
+    //     endSingleTimeCommands(commandBuffer);
+    // }
+
     fn transition_image_layout(
         self: *VulkanImage,
         device: vulkan.VkDevice,
@@ -803,7 +969,7 @@ const VulkanImage = struct {
             .subresourceRange = .{
                 .aspectMask = vulkan.VK_IMAGE_ASPECT_COLOR_BIT,
                 .baseMipLevel = 0,
-                .levelCount = 1,
+                .levelCount = self.mip_levels,
                 .baseArrayLayer = 0,
                 .layerCount = 1,
             },
