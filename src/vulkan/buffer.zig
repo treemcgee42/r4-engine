@@ -5,8 +5,8 @@ const stb_image = @import("../c.zig").stb_image;
 const std = @import("std");
 const vulkan = @import("../c.zig").vulkan;
 const VulkanError = @import("./vulkan.zig").VulkanError;
-const Vertex = @import("../vertex.zig");
 const cbuf = @import("./command_buffer.zig");
+const vertex = @import("../vertex.zig");
 
 fn find_memory_type(
     physical_device: vulkan.VkPhysicalDevice,
@@ -171,8 +171,9 @@ pub const VertexBuffer = struct {
         device: vulkan.VkDevice,
         command_pool: vulkan.VkCommandPool,
         graphics_queue: vulkan.VkQueue,
+        vertices: []vertex.Vertex,
     ) VulkanError!VertexBuffer {
-        const buffer_size = @sizeOf(Vertex.Vertex) * Vertex.vertices.len;
+        const buffer_size = @sizeOf(vertex.Vertex) * vertices.len;
 
         // --- Staging buffer.
 
@@ -197,7 +198,7 @@ pub const VertexBuffer = struct {
             }
         }
 
-        _ = c_string.memcpy(data, @ptrCast(Vertex.vertices[0..].ptr), @intCast(buffer_size));
+        _ = c_string.memcpy(data, @ptrCast(vertices[0..].ptr), @intCast(buffer_size));
 
         vulkan.vkUnmapMemory(device, staging_buffer.buffer_memory);
 
@@ -237,8 +238,9 @@ pub const IndexBuffer = struct {
         device: vulkan.VkDevice,
         command_pool: vulkan.VkCommandPool,
         graphics_queue: vulkan.VkQueue,
+        indices: []u32,
     ) VulkanError!IndexBuffer {
-        const buffer_size = @sizeOf(@TypeOf(Vertex.indices[0])) * Vertex.indices.len;
+        const buffer_size = @sizeOf(@TypeOf(indices[0])) * indices.len;
 
         // --- Staging buffer.
 
@@ -263,7 +265,7 @@ pub const IndexBuffer = struct {
             }
         }
 
-        _ = c_string.memcpy(data, @ptrCast(Vertex.indices[0..].ptr), @intCast(buffer_size));
+        _ = c_string.memcpy(data, @ptrCast(indices[0..].ptr), @intCast(buffer_size));
 
         vulkan.vkUnmapMemory(device, staging_buffer.buffer_memory);
 
@@ -286,7 +288,7 @@ pub const IndexBuffer = struct {
 
         return .{
             .buffer = buffer,
-            .len = Vertex.indices.len,
+            .len = indices.len,
         };
     }
 
@@ -311,7 +313,7 @@ pub const UniformBuffers = struct {
         var buffers_mapped = try allocator.alloc(?*anyopaque, max_frames_in_flight);
         errdefer allocator.free(buffers_mapped);
 
-        const buffer_size = @sizeOf(Vertex.UniformBufferObject);
+        const buffer_size = @sizeOf(vertex.UniformBufferObject);
 
         var i: usize = 0;
         while (i < max_frames_in_flight) : (i += 1) {
@@ -368,12 +370,14 @@ pub const TextureImage = struct {
         device: vulkan.VkDevice,
         command_pool: vulkan.VkCommandPool,
         graphics_queue: vulkan.VkQueue,
+        texture_path: [*c]const u8,
     ) VulkanError!TextureImage {
         var image = try create_texture_image(
             physical_device,
             device,
             command_pool,
             graphics_queue,
+            texture_path,
         );
 
         const image_view = try create_texture_image_view(device, &image);
@@ -392,13 +396,14 @@ pub const TextureImage = struct {
         device: vulkan.VkDevice,
         command_pool: vulkan.VkCommandPool,
         graphics_queue: vulkan.VkQueue,
+        texture_path: [*c]const u8,
     ) VulkanError!VulkanImage {
         var tex_width: c_int = undefined;
         var tex_height: c_int = undefined;
         var tex_channels: c_int = undefined;
 
         const pixels: [*c]stb_image.stbi_uc = stb_image.stbi_load(
-            "textures/texture.jpg",
+            texture_path,
             &tex_width,
             &tex_height,
             &tex_channels,

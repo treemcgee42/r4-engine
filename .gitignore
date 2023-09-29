@@ -1,6 +1,7 @@
 .DS_STORE
 external/
 textures/
+models/
 zig-cache/
 zig-out/
 .task/

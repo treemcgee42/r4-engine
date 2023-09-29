@@ -11,6 +11,7 @@ const GraphicsPipeline = @import("./graphics_pipeline.zig");
 const buffer = @import("./buffer.zig");
 const math = @import("../math.zig");
 const vertex = @import("../vertex.zig");
+const Model = @import("./model.zig");
 
 const VulkanSystem = @This();
 
@@ -35,14 +36,11 @@ graphics_pipeline: GraphicsPipeline,
 command_pool: vulkan.VkCommandPool,
 command_buffers: []vulkan.VkCommandBuffer,
 
-vertex_buffer: buffer.VertexBuffer,
-index_buffer: buffer.IndexBuffer,
-
 uniform_buffers: buffer.UniformBuffers,
 descriptor_pool: vulkan.VkDescriptorPool,
 descriptor_sets: []vulkan.VkDescriptorSet,
 
-texture_image: buffer.TextureImage,
+model: Model,
 
 image_available_semaphores: []vulkan.VkSemaphore,
 render_finished_semaphores: []vulkan.VkSemaphore,
@@ -65,6 +63,7 @@ pub const VulkanError = error{
     image_load_failed,
     unsupported_layout_transition,
     no_supported_format,
+    model_loading_failed,
 
     vk_error_out_of_host_memory,
     vk_error_out_of_device_memory,
@@ -124,20 +123,8 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
     const command_pool = try create_command_pool(allocator_, physical_device, logical_device, surface);
     const command_buffers = try create_command_buffers(allocator_, logical_device, command_pool);
 
-    const texture_image = try buffer.TextureImage.init(
-        physical_device,
-        logical_device,
-        command_pool,
-        graphics_queue,
-    );
-
-    const vertex_buffer = try buffer.VertexBuffer.init(
-        physical_device,
-        logical_device,
-        command_pool,
-        graphics_queue,
-    );
-    const index_buffer = try buffer.IndexBuffer.init(
+    const model = try Model.init(
+        allocator_,
         physical_device,
         logical_device,
         command_pool,
@@ -157,7 +144,7 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
         descriptor_set_layout,
         descriptor_pool,
         uniform_buffers,
-        texture_image,
+        model.texture,
     );
 
     const sync_objects = try create_sync_objects(allocator_, logical_device);
@@ -184,14 +171,11 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
         .command_pool = command_pool,
         .command_buffers = command_buffers,
 
-        .vertex_buffer = vertex_buffer,
-        .index_buffer = index_buffer,
-
         .uniform_buffers = uniform_buffers,
         .descriptor_pool = descriptor_pool,
         .descriptor_sets = descriptor_sets,
 
-        .texture_image = texture_image,
+        .model = model,
 
         .image_available_semaphores = sync_objects.image_available_semaphores,
         .render_finished_semaphores = sync_objects.render_finished_semaphores,
@@ -224,10 +208,7 @@ pub fn deinit(self: *VulkanSystem) void {
     vulkan.vkDestroyRenderPass(self.logical_device, self.render_pass, null);
     self.swapchain.deinit();
 
-    self.texture_image.deinit(self.logical_device);
-
-    self.vertex_buffer.deinit(self.logical_device);
-    self.index_buffer.deinit(self.logical_device);
+    self.model.deinit(self.logical_device);
 
     self.uniform_buffers.deinit(self.logical_device);
     vulkan.vkDestroyDescriptorPool(self.logical_device, self.descriptor_pool, null);
@@ -1057,11 +1038,11 @@ fn record_command_buffer(self: *VulkanSystem, command_buffer: vulkan.VkCommandBu
 
     vulkan.vkCmdBindPipeline(command_buffer, vulkan.VK_PIPELINE_BIND_POINT_GRAPHICS, self.graphics_pipeline.pipeline);
 
-    const vertex_buffers = [_]vulkan.VkBuffer{self.vertex_buffer.buffer.buffer};
+    const vertex_buffers = [_]vulkan.VkBuffer{self.model.vertex_buffer.buffer.buffer};
     const offsets = [_]vulkan.VkDeviceSize{0};
     vulkan.vkCmdBindVertexBuffers(command_buffer, 0, 1, vertex_buffers[0..].ptr, offsets[0..].ptr);
 
-    vulkan.vkCmdBindIndexBuffer(command_buffer, self.index_buffer.buffer.buffer, 0, vulkan.VK_INDEX_TYPE_UINT16);
+    vulkan.vkCmdBindIndexBuffer(command_buffer, self.model.index_buffer.buffer.buffer, 0, vulkan.VK_INDEX_TYPE_UINT32);
 
     const viewport = vulkan.VkViewport{
         .x = 0.0,
@@ -1090,7 +1071,7 @@ fn record_command_buffer(self: *VulkanSystem, command_buffer: vulkan.VkCommandBu
         null,
     );
 
-    vulkan.vkCmdDrawIndexed(command_buffer, @intCast(self.index_buffer.len), 1, 0, 0, 0);
+    vulkan.vkCmdDrawIndexed(command_buffer, @intCast(self.model.index_buffer.len), 1, 0, 0, 0);
 
     // --- End render pass.
 

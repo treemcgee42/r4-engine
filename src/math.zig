@@ -1,4 +1,7 @@
+const std = @import("std");
 const cglm = @import("c.zig").cglm;
+
+// hash(self, K) u64 eql(self, K, K)
 
 pub const Vec2f = struct {
     raw: cglm.vec2,
@@ -7,6 +10,14 @@ pub const Vec2f = struct {
         return .{
             .raw = [_]f32{ x, y },
         };
+    }
+
+    pub fn hash(self: Vec2f) u64 {
+        return @as(u64, @intFromFloat(self.raw[0])) ^ (@as(u64, @intFromFloat(self.raw[1])) << 1);
+    }
+
+    pub fn eql(self: Vec2f, other: Vec2f) bool {
+        return self.raw[0] == other.raw[0] and self.raw[1] == other.raw[1];
     }
 };
 
@@ -17,6 +28,14 @@ pub const Vec3f = struct {
         return .{
             .raw = [_]f32{ x, y, z },
         };
+    }
+
+    pub fn hash(self: Vec3f) u64 {
+        return @as(u64, @intFromFloat(self.raw[0])) ^ (@as(u64, @intFromFloat(self.raw[1])) << 1) ^ (@as(u64, @intFromFloat(self.raw[2])) << 2);
+    }
+
+    pub fn eql(self: Vec3f, other: Vec3f) bool {
+        return self.raw[0] == other.raw[0] and self.raw[1] == other.raw[1] and self.raw[2] == other.raw[2];
     }
 };
 

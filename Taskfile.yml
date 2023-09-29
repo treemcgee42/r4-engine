@@ -19,12 +19,19 @@ tasks:
         cmd: "{{.GLSLC}} {{.ITEM}} -o {{.OUTPUT_DIR}}/{{.ITEM}}.spv"
 
   build:
+    vars:
+      OPTIMIZATION: '{{default "Debug" .OPTIMIZATION}}'
     cmds:
       - task: compile-shaders
-      - "zig build" 
+      - "zig build -Doptimize={{.OPTIMIZATION}}" 
     env:
       VK_ICD_FILENAMES: "{{.VULKAN_SDK}}/macOS/share/vulkan/icd.d/MoltenVK_icd.json"
       VK_LAYER_PATH: "{{.VULKAN_SDK}}/macOS/share/vulkan/explicit_layer.d"
+
+  build-release-fast:
+    cmds:
+      - task: build 
+        vars: { OPTIMIZATION: "ReleaseFast" }
 
   run:
     cmds:

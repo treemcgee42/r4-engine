@@ -25,6 +25,12 @@ pub const stb_image = struct {
     });
 };
 
+pub const fast_obj = struct {
+    pub usingnamespace @cImport({
+        @cInclude("fast_obj.h");
+    });
+};
+
 const c_string = @cImport({
     @cInclude("string.h");
 });

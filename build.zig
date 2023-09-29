@@ -58,6 +58,13 @@ pub fn build(b: *std.Build) void {
         .flags = &[_][]const u8{},
     });
 
+    // FAST_OBJ.
+    exe.addIncludePath(.{ .path = "./external/fast_obj" });
+    exe.addCSourceFile(.{
+        .file = .{ .path = "./external/fast_obj/fast_obj.c" },
+        .flags = &[_][]const u8{},
+    });
+
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
     // step when running `zig build`).
