@@ -453,6 +453,7 @@ pub const TextureImage = struct {
             @intCast(tex_width),
             @intCast(tex_height),
             mip_levels,
+            vulkan.VK_SAMPLE_COUNT_1_BIT,
             vulkan.VK_FORMAT_R8G8B8A8_SRGB,
             vulkan.VK_IMAGE_TILING_OPTIMAL,
             vulkan.VK_IMAGE_USAGE_TRANSFER_SRC_BIT | vulkan.VK_IMAGE_USAGE_TRANSFER_DST_BIT | vulkan.VK_IMAGE_USAGE_SAMPLED_BIT,
@@ -544,7 +545,13 @@ pub const DepthImage = struct {
     image: VulkanImage,
     image_view: vulkan.VkImageView,
 
-    pub fn init(physical_device: vulkan.VkPhysicalDevice, device: vulkan.VkDevice, width: u32, height: u32) VulkanError!DepthImage {
+    pub fn init(
+        physical_device: vulkan.VkPhysicalDevice,
+        device: vulkan.VkDevice,
+        width: u32,
+        height: u32,
+        num_samples: u32,
+    ) VulkanError!DepthImage {
         const depth_format = try find_depth_format(physical_device);
 
         var depth_image = try VulkanImage.init(
@@ -553,6 +560,7 @@ pub const DepthImage = struct {
             width,
             height,
             1,
+            num_samples,
             depth_format,
             vulkan.VK_IMAGE_TILING_OPTIMAL,
             vulkan.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
@@ -569,6 +577,65 @@ pub const DepthImage = struct {
     }
 
     pub fn deinit(self: DepthImage, device: vulkan.VkDevice) void {
+        vulkan.vkDestroyImageView(device, self.image_view, null);
+        self.image.deinit(device);
+    }
+
+    pub fn find_depth_format(physical_device: vulkan.VkPhysicalDevice) VulkanError!vulkan.VkFormat {
+        const to_return = try find_supported_format(
+            physical_device,
+            &[_]vulkan.VkFormat{
+                vulkan.VK_FORMAT_D32_SFLOAT,
+                vulkan.VK_FORMAT_D32_SFLOAT_S8_UINT,
+                vulkan.VK_FORMAT_D24_UNORM_S8_UINT,
+            },
+            vulkan.VK_IMAGE_TILING_OPTIMAL,
+            vulkan.VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT,
+        );
+
+        return to_return;
+    }
+
+    fn has_stencil_component(format: vulkan.VkFormat) bool {
+        return format == vulkan.VK_FORMAT_D32_SFLOAT_S8_UINT or format == vulkan.VK_FORMAT_D24_UNORM_S8_UINT;
+    }
+};
+
+pub const ColorImage = struct {
+    image: VulkanImage,
+    image_view: vulkan.VkImageView,
+
+    pub fn init(
+        physical_device: vulkan.VkPhysicalDevice,
+        device: vulkan.VkDevice,
+        width: u32,
+        height: u32,
+        format: vulkan.VkFormat,
+        num_samples: vulkan.VkSampleCountFlagBits,
+    ) VulkanError!ColorImage {
+        var image = try VulkanImage.init(
+            physical_device,
+            device,
+            width,
+            height,
+            1,
+            num_samples,
+            format,
+            vulkan.VK_IMAGE_TILING_OPTIMAL,
+            vulkan.VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | vulkan.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+            vulkan.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        );
+        errdefer image.deinit(device);
+
+        const image_view = try image.create_image_view(device, vulkan.VK_IMAGE_ASPECT_COLOR_BIT);
+
+        return .{
+            .image = image,
+            .image_view = image_view,
+        };
+    }
+
+    pub fn deinit(self: ColorImage, device: vulkan.VkDevice) void {
         vulkan.vkDestroyImageView(device, self.image_view, null);
         self.image.deinit(device);
     }
@@ -610,6 +677,7 @@ const VulkanImage = struct {
         width: u32,
         height: u32,
         mip_levels: u32,
+        num_samples: vulkan.VkSampleCountFlagBits,
         format: vulkan.VkFormat,
         tiling: vulkan.VkImageTiling,
         usage: vulkan.VkImageUsageFlags,
@@ -630,7 +698,7 @@ const VulkanImage = struct {
             .initialLayout = vulkan.VK_IMAGE_LAYOUT_UNDEFINED,
             .usage = usage,
             .sharingMode = vulkan.VK_SHARING_MODE_EXCLUSIVE,
-            .samples = vulkan.VK_SAMPLE_COUNT_1_BIT,
+            .samples = num_samples,
 
             .queueFamilyIndexCount = 0,
             .pQueueFamilyIndices = undefined,

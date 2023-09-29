@@ -18,6 +18,7 @@ pub fn init(
     swapchain: *const Swapchain,
     render_pass: vulkan.VkRenderPass,
     descriptor_set_layout: vulkan.VkDescriptorSetLayout,
+    num_samples: vulkan.VkSampleCountFlagBits,
 ) VulkanError!GraphicsPipeline {
     _ = swapchain;
     const vert_shader_code = try read_file("shaders/compiled_output/shader.vert.spv", allocator_);
@@ -127,7 +128,7 @@ pub fn init(
     const multisampling = vulkan.VkPipelineMultisampleStateCreateInfo{
         .sType = vulkan.VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
         .sampleShadingEnable = vulkan.VK_FALSE,
-        .rasterizationSamples = vulkan.VK_SAMPLE_COUNT_1_BIT,
+        .rasterizationSamples = num_samples,
         // Default:
         .minSampleShading = 1.0,
         .pSampleMask = null,

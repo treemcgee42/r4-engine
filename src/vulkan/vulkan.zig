@@ -46,6 +46,8 @@ image_available_semaphores: []vulkan.VkSemaphore,
 render_finished_semaphores: []vulkan.VkSemaphore,
 in_flight_fences: []vulkan.VkFence,
 
+msaa_samples: vulkan.VkSampleCountFlagBits = vulkan.VK_SAMPLE_COUNT_1_BIT,
+
 current_frame: usize = 0,
 
 framebuffer_resized: bool = false,
@@ -99,6 +101,7 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
     const surface = try create_surface(instance, window);
 
     const physical_device = try pick_physical_device(instance, allocator_, surface);
+    const msaa_samples = try get_max_usable_sample_count(physical_device);
     const logical_device = try create_logical_device(physical_device, allocator_, surface);
 
     const queue_family_indices = try find_queue_families(physical_device, allocator_, surface);
@@ -108,8 +111,13 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
     vulkan.vkGetDeviceQueue(logical_device, queue_family_indices.present_family.?, 0, &present_queue);
 
     const swapchain_settings = try Swapchain.query_swapchain_settings(allocator_, physical_device, logical_device, surface);
-    const render_pass = try create_render_pass(physical_device, logical_device, swapchain_settings.surface_format.format);
-    const swapchain = try Swapchain.init(allocator_, window, physical_device, logical_device, surface, render_pass);
+    const render_pass = try create_render_pass(
+        physical_device,
+        logical_device,
+        swapchain_settings.surface_format.format,
+        msaa_samples,
+    );
+    const swapchain = try Swapchain.init(allocator_, window, physical_device, logical_device, surface, render_pass, msaa_samples);
 
     const descriptor_set_layout = try create_descriptor_set_layout(logical_device);
     const graphics_pipeline = try GraphicsPipeline.init(
@@ -118,6 +126,7 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
         &swapchain,
         render_pass,
         descriptor_set_layout,
+        msaa_samples,
     );
 
     const command_pool = try create_command_pool(allocator_, physical_device, logical_device, surface);
@@ -158,6 +167,7 @@ pub fn init(allocator_: std.mem.Allocator, window: *glfw.GLFWwindow) VulkanError
         .surface = surface,
 
         .physical_device = physical_device,
+        .msaa_samples = msaa_samples,
         .logical_device = logical_device,
 
         .graphics_queue = graphics_queue,
@@ -253,7 +263,7 @@ pub fn draw_frame(self: *VulkanSystem) VulkanError!void {
                     self.logical_device,
                     self.surface,
                 );
-                try self.swapchain.recreate_swapchain(swapchain_settings);
+                try self.swapchain.recreate_swapchain(swapchain_settings, self.msaa_samples);
                 return;
             },
             else => unreachable,
@@ -329,7 +339,7 @@ pub fn draw_frame(self: *VulkanSystem) VulkanError!void {
                     self.logical_device,
                     self.surface,
                 );
-                try self.swapchain.recreate_swapchain(swapchain_settings);
+                try self.swapchain.recreate_swapchain(swapchain_settings, self.msaa_samples);
             },
             vulkan.VK_SUBOPTIMAL_KHR => {
                 const swapchain_settings = try Swapchain.query_swapchain_settings(
@@ -338,7 +348,7 @@ pub fn draw_frame(self: *VulkanSystem) VulkanError!void {
                     self.logical_device,
                     self.surface,
                 );
-                try self.swapchain.recreate_swapchain(swapchain_settings);
+                try self.swapchain.recreate_swapchain(swapchain_settings, self.msaa_samples);
             },
             else => unreachable,
         }
@@ -352,7 +362,7 @@ pub fn draw_frame(self: *VulkanSystem) VulkanError!void {
             self.logical_device,
             self.surface,
         );
-        try self.swapchain.recreate_swapchain(swapchain_settings);
+        try self.swapchain.recreate_swapchain(swapchain_settings, self.msaa_samples);
     }
 
     self.current_frame = (self.current_frame + 1) % max_frames_in_flight;
@@ -572,6 +582,35 @@ fn check_device_extension_support(device: vulkan.VkPhysicalDevice, allocator_: s
     }
 
     return found_exensions == device_extensions.len;
+}
+
+fn get_max_usable_sample_count(physical_device: vulkan.VkPhysicalDevice) VulkanError!vulkan.VkSampleCountFlagBits {
+    var physical_device_properties: vulkan.VkPhysicalDeviceProperties = undefined;
+    vulkan.vkGetPhysicalDeviceProperties(physical_device, &physical_device_properties);
+
+    const counts = physical_device_properties.limits.framebufferColorSampleCounts &
+        physical_device_properties.limits.framebufferDepthSampleCounts;
+
+    if (counts & vulkan.VK_SAMPLE_COUNT_64_BIT != 0) {
+        return vulkan.VK_SAMPLE_COUNT_64_BIT;
+    }
+    if (counts & vulkan.VK_SAMPLE_COUNT_32_BIT != 0) {
+        return vulkan.VK_SAMPLE_COUNT_32_BIT;
+    }
+    if (counts & vulkan.VK_SAMPLE_COUNT_16_BIT != 0) {
+        return vulkan.VK_SAMPLE_COUNT_16_BIT;
+    }
+    if (counts & vulkan.VK_SAMPLE_COUNT_8_BIT != 0) {
+        return vulkan.VK_SAMPLE_COUNT_8_BIT;
+    }
+    if (counts & vulkan.VK_SAMPLE_COUNT_4_BIT != 0) {
+        return vulkan.VK_SAMPLE_COUNT_4_BIT;
+    }
+    if (counts & vulkan.VK_SAMPLE_COUNT_2_BIT != 0) {
+        return vulkan.VK_SAMPLE_COUNT_2_BIT;
+    }
+
+    return vulkan.VK_SAMPLE_COUNT_1_BIT;
 }
 
 fn pick_physical_device(instance: vulkan.VkInstance, allocator_: std.mem.Allocator, surface: vulkan.VkSurfaceKHR) VulkanError!vulkan.VkPhysicalDevice {
@@ -836,16 +875,17 @@ fn create_render_pass(
     physical_device: vulkan.VkPhysicalDevice,
     device: vulkan.VkDevice,
     swap_chain_image_format: vulkan.VkFormat,
+    num_samples: vulkan.VkSampleCountFlagBits,
 ) VulkanError!vulkan.VkRenderPass {
     const color_attachment = vulkan.VkAttachmentDescription{
         .format = swap_chain_image_format,
-        .samples = vulkan.VK_SAMPLE_COUNT_1_BIT,
+        .samples = num_samples,
         .loadOp = vulkan.VK_ATTACHMENT_LOAD_OP_CLEAR,
         .storeOp = vulkan.VK_ATTACHMENT_STORE_OP_STORE,
         .stencilLoadOp = vulkan.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
         .stencilStoreOp = vulkan.VK_ATTACHMENT_STORE_OP_DONT_CARE,
         .initialLayout = vulkan.VK_IMAGE_LAYOUT_UNDEFINED,
-        .finalLayout = vulkan.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        .finalLayout = vulkan.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 
         .flags = 0,
     };
@@ -853,13 +893,26 @@ fn create_render_pass(
     const depth_format = try buffer.DepthImage.find_depth_format(physical_device);
     const depth_attachment = vulkan.VkAttachmentDescription{
         .format = depth_format,
-        .samples = vulkan.VK_SAMPLE_COUNT_1_BIT,
+        .samples = num_samples,
         .loadOp = vulkan.VK_ATTACHMENT_LOAD_OP_CLEAR,
         .storeOp = vulkan.VK_ATTACHMENT_STORE_OP_DONT_CARE,
         .stencilLoadOp = vulkan.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
         .stencilStoreOp = vulkan.VK_ATTACHMENT_STORE_OP_DONT_CARE,
         .initialLayout = vulkan.VK_IMAGE_LAYOUT_UNDEFINED,
         .finalLayout = vulkan.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+    };
+
+    const color_attachment_resolve = vulkan.VkAttachmentDescription{
+        .format = swap_chain_image_format,
+        .samples = vulkan.VK_SAMPLE_COUNT_1_BIT,
+        .loadOp = vulkan.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+        .storeOp = vulkan.VK_ATTACHMENT_STORE_OP_STORE,
+        .stencilLoadOp = vulkan.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+        .stencilStoreOp = vulkan.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        .initialLayout = vulkan.VK_IMAGE_LAYOUT_UNDEFINED,
+        .finalLayout = vulkan.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+
+        .flags = 0,
     };
 
     // --- Subpass.
@@ -874,16 +927,21 @@ fn create_render_pass(
         .layout = vulkan.VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
     };
 
+    const color_attachment_resolve_ref = vulkan.VkAttachmentReference{
+        .attachment = 2,
+        .layout = vulkan.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+    };
+
     const subpass = vulkan.VkSubpassDescription{
         .pipelineBindPoint = vulkan.VK_PIPELINE_BIND_POINT_GRAPHICS,
         .colorAttachmentCount = 1,
         .pColorAttachments = &color_attachment_ref,
         .pDepthStencilAttachment = &depth_attachment_ref,
+        .pResolveAttachments = &color_attachment_resolve_ref,
 
         .flags = 0,
         .inputAttachmentCount = 0,
         .pInputAttachments = null,
-        .pResolveAttachments = null,
         .preserveAttachmentCount = 0,
         .pPreserveAttachments = null,
     };
@@ -903,7 +961,7 @@ fn create_render_pass(
 
     // ---
 
-    const attachments = [_]vulkan.VkAttachmentDescription{ color_attachment, depth_attachment };
+    const attachments = [_]vulkan.VkAttachmentDescription{ color_attachment, depth_attachment, color_attachment_resolve };
 
     const render_pass_info = vulkan.VkRenderPassCreateInfo{
         .sType = vulkan.VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,

@@ -19,6 +19,7 @@ swapchain_image_format: vulkan.VkFormat,
 swapchain_extent: vulkan.VkExtent2D,
 swapchain_image_views: []vulkan.VkImageView,
 
+color_image: buffer.ColorImage,
 depth_image: buffer.DepthImage,
 framebuffers: []vulkan.VkFramebuffer,
 
@@ -31,6 +32,7 @@ pub fn init(
     logical_device: vulkan.VkDevice,
     surface: vulkan.VkSurfaceKHR,
     render_pass: vulkan.VkRenderPass,
+    num_samples: vulkan.VkSampleCountFlagBits,
 ) VulkanError!Swapchain {
     const swapchain_settings = try query_swapchain_settings(
         allocator_,
@@ -46,11 +48,20 @@ pub fn init(
         swapchain_info.image_format,
     );
 
+    const color_image = try buffer.ColorImage.init(
+        physical_device,
+        logical_device,
+        swapchain_info.extent.width,
+        swapchain_info.extent.height,
+        swapchain_info.image_format,
+        num_samples,
+    );
     const depth_image = try buffer.DepthImage.init(
         physical_device,
         logical_device,
         swapchain_info.extent.width,
         swapchain_info.extent.height,
+        num_samples,
     );
 
     const framebuffers = try create_framebuffers(
@@ -59,6 +70,7 @@ pub fn init(
         swapchain_image_views,
         swapchain_info.extent,
         render_pass,
+        color_image,
         depth_image,
     );
 
@@ -77,12 +89,14 @@ pub fn init(
         .swapchain_extent = swapchain_info.extent,
         .swapchain_image_views = swapchain_image_views,
 
+        .color_image = color_image,
         .depth_image = depth_image,
         .framebuffers = framebuffers,
     };
 }
 
 pub fn deinit(self: Swapchain) void {
+    self.color_image.deinit(self.logical_device);
     self.depth_image.deinit(self.logical_device);
 
     var i: usize = 0;
@@ -172,7 +186,11 @@ pub fn query_swapchain_support(
     };
 }
 
-pub fn recreate_swapchain(self: *Swapchain, swapchain_settings: SwapchainSettings) VulkanError!void {
+pub fn recreate_swapchain(
+    self: *Swapchain,
+    swapchain_settings: SwapchainSettings,
+    num_samples: vulkan.VkSampleCountFlagBits,
+) VulkanError!void {
     var width: c_int = 0;
     var height: c_int = 0;
     glfw.glfwGetFramebufferSize(self.window, &width, &height);
@@ -222,6 +240,15 @@ pub fn recreate_swapchain(self: *Swapchain, swapchain_settings: SwapchainSetting
         self.logical_device,
         swapchain_info.extent.width,
         swapchain_info.extent.height,
+        num_samples,
+    );
+    const color_image = try buffer.ColorImage.init(
+        self.physical_device,
+        self.logical_device,
+        swapchain_info.extent.width,
+        swapchain_info.extent.height,
+        swapchain_info.image_format,
+        num_samples,
     );
 
     const framebuffers = try create_framebuffers(
@@ -230,6 +257,7 @@ pub fn recreate_swapchain(self: *Swapchain, swapchain_settings: SwapchainSetting
         swapchain_image_views,
         swapchain_info.extent,
         self.render_pass,
+        color_image,
         depth_image,
     );
 
@@ -239,6 +267,7 @@ pub fn recreate_swapchain(self: *Swapchain, swapchain_settings: SwapchainSetting
     self.swapchain_extent = swapchain_info.extent;
     self.swapchain_image_views = swapchain_image_views;
 
+    self.color_image = color_image;
     self.depth_image = depth_image;
     self.framebuffers = framebuffers;
 }
@@ -487,6 +516,7 @@ fn create_framebuffers(
     swapchain_image_views: []vulkan.VkImageView,
     swapchain_extent: vulkan.VkExtent2D,
     render_pass: vulkan.VkRenderPass,
+    color_image: buffer.ColorImage,
     depth_image: buffer.DepthImage,
 ) VulkanError![]vulkan.VkFramebuffer {
     var framebuffers = try allocator_.alloc(vulkan.VkFramebuffer, swapchain_image_views.len);
@@ -495,8 +525,9 @@ fn create_framebuffers(
     var i: usize = 0;
     while (i < swapchain_image_views.len) : (i += 1) {
         const attachments = [_]vulkan.VkImageView{
-            swapchain_image_views[i],
+            color_image.image_view,
             depth_image.image_view,
+            swapchain_image_views[i],
         };
 
         var framebuffer_info = vulkan.VkFramebufferCreateInfo{
