@@ -4,8 +4,13 @@ const builtin = @import("builtin");
 const glfw = @import("c.zig").glfw;
 const cglm = @import("c.zig").cglm;
 
+const Window = @import("core/Window.zig");
+
 const VulkanSystem = @import("vulkan/vulkan.zig");
 const Math = @import("math.zig");
+
+const Core = @import("core/Core.zig");
+const RenderPass = @import("core/vulkan/RenderPass.zig");
 
 const WIDTH: u32 = 800;
 const HEIGHT: u32 = 600;
@@ -25,10 +30,6 @@ pub const HelloTriangleApp = struct {
     } || std.mem.Allocator.Error;
 
     fn init_window() InitError!*glfw.GLFWwindow {
-        if (glfw.glfwInit() == 0) {
-            return InitError.glfw_init_failed;
-        }
-
         glfw.glfwWindowHint(glfw.GLFW_CLIENT_API, glfw.GLFW_NO_API);
 
         glfw.glfwWindowHint(glfw.GLFW_RESIZABLE, glfw.GLFW_TRUE);
@@ -85,14 +86,38 @@ pub const HelloTriangleApp = struct {
     }
 };
 
+pub const StartupError = error{
+    glfw_init_failed,
+};
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var app = try HelloTriangleApp.init(allocator);
-    app.setup_resize();
-    defer app.deinit();
+    var core = try Core.init(allocator);
+    defer core.deinit();
+    std.log.info("r4 core intialized", .{});
 
-    try app.run();
+    const window_init_info = Window.WindowInitInfo{};
+    var window = try Window.init(&core, &window_init_info);
+    window.setup_resize();
+
+    var primary_renderpass = try RenderPass.init_basic_primary(&core, .{
+        .tag = .basic_primary,
+        .p_window = &window,
+    });
+    window.add_renderpass(primary_renderpass);
+
+    std.debug.print("about to run main loop\n", .{});
+    try window.run_main_loop(&core);
+    defer window.deinit(&core);
+
+    core.vulkan_system.prep_for_deinit();
+
+    // var app = try HelloTriangleApp.init(allocator);
+    // app.setup_resize();
+    // defer app.deinit();
+    //
+    // try app.run();
 }

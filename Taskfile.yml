@@ -4,6 +4,7 @@ version: '3'
 
 vars:
   VULKAN_SDK: "/Users/ogmalladii/VulkanSDK/1.3.261.1"
+  ZIGC: "/Users/ogmalladii/dev/zig/installations/zig-macos-aarch64-0.12.0-dev.602+15ce96525/zig"
 
 tasks:
   compile-shaders:
@@ -23,7 +24,7 @@ tasks:
       OPTIMIZATION: '{{default "Debug" .OPTIMIZATION}}'
     cmds:
       - task: compile-shaders
-      - "zig build -Doptimize={{.OPTIMIZATION}}" 
+      - "{{.ZIGC}} build -Doptimize={{.OPTIMIZATION}}" 
     env:
       VK_ICD_FILENAMES: "{{.VULKAN_SDK}}/macOS/share/vulkan/icd.d/MoltenVK_icd.json"
       VK_LAYER_PATH: "{{.VULKAN_SDK}}/macOS/share/vulkan/explicit_layer.d"
@@ -38,3 +39,10 @@ tasks:
       - "zig-out/bin/game_engine"
     env:
       DYLD_LIBRARY_PATH: "/Users/ogmalladii/VulkanSDK/1.3.261.1/macOS/lib:/opt/homebrew/opt/glfw/lib:/opt/homebrew/opt/glm/lib:/Users/ogmalladii/dev/zig/game_engine/external/cglm-0.9.1/build"
+
+  debug:
+    cmds:
+      - "lldb zig-out/bin/game_engine"
+    env:
+      DYLD_LIBRARY_PATH: "/Users/ogmalladii/VulkanSDK/1.3.261.1/macOS/lib:/opt/homebrew/opt/glfw/lib:/opt/homebrew/opt/glm/lib:/Users/ogmalladii/dev/zig/game_engine/external/cglm-0.9.1/build"
+
