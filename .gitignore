@@ -7,3 +7,4 @@ zig-out/
 .task/
 shaders/compiled_output/*
 Session.vim
+imgui.ini

@@ -107,6 +107,7 @@ pub fn main() !void {
         .tag = .basic_primary,
         .p_window = &window,
     });
+    try primary_renderpass.setup_imgui(&core, &window);
     window.add_renderpass(primary_renderpass);
 
     std.debug.print("about to run main loop\n", .{});

@@ -4,6 +4,7 @@ version: '3'
 
 vars:
   VULKAN_SDK: "/Users/ogmalladii/VulkanSDK/1.3.261.1"
+  GLFW_INCLUDE_DIR: "/opt/homebrew/opt/glfw/include"
   ZIGC: "/Users/ogmalladii/dev/zig/installations/zig-macos-aarch64-0.12.0-dev.602+15ce96525/zig"
 
 tasks:
@@ -45,4 +46,14 @@ tasks:
       - "lldb zig-out/bin/game_engine"
     env:
       DYLD_LIBRARY_PATH: "/Users/ogmalladii/VulkanSDK/1.3.261.1/macOS/lib:/opt/homebrew/opt/glfw/lib:/opt/homebrew/opt/glm/lib:/Users/ogmalladii/dev/zig/game_engine/external/cglm-0.9.1/build"
+
+  cimgui-generate:
+    dir: "{{.ROOT_DIR}}/external/cimgui/generator"
+    cmds:
+      - "./generator.sh"
+    env:
+      VULKAN_SDK: "{{.VULKAN_SDK}}/macOS/include"
+      VK_ICD_FILENAMES: "{{.VULKAN_SDK}}/macOS/share/vulkan/icd.d/MoltenVK_icd.json"
+      VK_LAYER_PATH: "{{.VULKAN_SDK}}/macOS/share/vulkan/explicit_layer.d"
+      GLFW_INCLUDE_DIR: "{{.GLFW_INCLUDE_DIR}}"
 

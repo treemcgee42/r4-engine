@@ -1,5 +1,6 @@
 const std = @import("std");
 const glfw = @import("../c/glfw.zig");
+const cimgui = @import("../c/cimgui.zig");
 const vulkan = @import("../c/vulkan.zig");
 const Core = @import("Core.zig");
 const VulkanSystem = @import("vulkan/VulkanSystem.zig");
@@ -16,6 +17,8 @@ framebuffer_resized: bool,
 swapchain: Swapchain,
 
 render_passes: std.ArrayList(RenderPass),
+
+show_imgui_demo_window: bool = true,
 
 pub const WindowInitInfo = struct {
     width: u32 = 800,
@@ -81,6 +84,18 @@ pub const WindowRunError = error{
 pub fn run_main_loop(self: *Window, core: *Core) WindowRunError!void {
     while (glfw.glfwWindowShouldClose(self.window) == 0) {
         glfw.glfwPollEvents();
+
+        cimgui.ImGui_ImplVulkan_NewFrame();
+        cimgui.ImGui_ImplGlfw_NewFrame();
+
+        cimgui.igNewFrame();
+
+        if (self.show_imgui_demo_window) {
+            cimgui.igShowDemoWindow(&self.show_imgui_demo_window);
+        }
+
+        cimgui.igRender();
+
         self.draw_frame(core) catch {
             return WindowRunError.draw_frame_failed;
         };

@@ -27,9 +27,7 @@ pub fn build(b: *std.Build) void {
     exe.linkLibC();
 
     // GLFW.
-    exe.addLibraryPath(.{ .path = "/opt/homebrew/opt/glfw/lib" });
-    exe.linkSystemLibrary("glfw.3.3");
-    exe.addIncludePath(.{ .path = "/opt/homebrew/opt/glfw/include" });
+    link_glfw(exe);
 
     // CGLM.
     exe.addLibraryPath(.{ .path = "./external/cglm-0.9.1/build" });
@@ -46,10 +44,7 @@ pub fn build(b: *std.Build) void {
     exe.linkFramework("Cocoa");
     exe.linkFramework("CoreVideo");
 
-    exe.addLibraryPath(.{ .path = "/Users/ogmalladii/VulkanSDK/1.3.261.1/macOS/lib" });
-    exe.linkSystemLibrary("vulkan.1");
-    exe.linkSystemLibrary("vulkan.1.3.261");
-    exe.addIncludePath(.{ .path = "/Users/ogmalladii/VulkanSDK/1.3.261.1/macOS/include" });
+    link_vulkan(exe);
 
     // STB_IMAGE.
     exe.addIncludePath(.{ .path = "./external/stb_image" });
@@ -64,6 +59,13 @@ pub fn build(b: *std.Build) void {
         .file = .{ .path = "./external/fast_obj/fast_obj.c" },
         .flags = &[_][]const u8{},
     });
+
+    // // CIMGUI.
+    exe.addIncludePath(.{ .path = "./external/cimgui" });
+    exe.addIncludePath(.{ .path = "./external/cimgui/generator/output" });
+    // exe.addLibraryPath(.{ .path = "./external/cimgui/build" });
+    // exe.linkSystemLibrary("cimgui");
+    exe.linkLibrary(build_cimgui(b, target));
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
@@ -108,4 +110,65 @@ pub fn build(b: *std.Build) void {
     // running the unit tests.
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
+}
+
+fn link_glfw(exe: *std.build.Step.Compile) void {
+    exe.addLibraryPath(.{ .path = "/opt/homebrew/opt/glfw/lib" });
+    exe.linkSystemLibrary("glfw.3.3");
+    exe.addIncludePath(.{ .path = "/opt/homebrew/opt/glfw/include" });
+}
+
+fn link_vulkan(exe: *std.build.Step.Compile) void {
+    exe.addLibraryPath(.{ .path = "/Users/ogmalladii/VulkanSDK/1.3.261.1/macOS/lib" });
+    exe.linkSystemLibrary("vulkan.1");
+    exe.linkSystemLibrary("vulkan.1.3.261");
+    exe.addIncludePath(.{ .path = "/Users/ogmalladii/VulkanSDK/1.3.261.1/macOS/include" });
+}
+
+fn build_cimgui(b: *std.Build, target: std.zig.CrossTarget) *std.build.Step.Compile {
+    const dir = "external/cimgui";
+    const sources = [_][]const u8{
+        "cimgui.cpp",
+        "imgui/imgui.cpp",
+        "imgui/imgui_draw.cpp",
+        "imgui/imgui_demo.cpp",
+        "imgui/imgui_widgets.cpp",
+        "imgui/imgui_tables.cpp",
+
+        "imgui/backends/imgui_impl_vulkan.cpp",
+        "imgui/backends/imgui_impl_glfw.cpp",
+    };
+
+    const cimgui = b.addSharedLibrary(.{
+        .name = "cimgui",
+        .target = target,
+        .optimize = .ReleaseFast,
+    });
+
+    cimgui.linkLibC();
+    cimgui.linkLibCpp();
+
+    link_glfw(cimgui);
+    link_vulkan(cimgui);
+
+    cimgui.addIncludePath(.{ .path = dir });
+    cimgui.addIncludePath(.{ .path = dir ++ "/imgui" });
+
+    const cpp_flags: []const []const u8 = &[_][]const u8{
+        "-O2",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-DIMGUI_DISABLE_OBSOLETE_FUNCTIONS=1",
+        "-DIMGUI_IMPL_API=extern \"C\" ",
+        "-Dcimgui_EXPORTS",
+    };
+
+    inline for (sources) |src| {
+        cimgui.addCSourceFile(.{
+            .file = .{ .path = dir ++ "/" ++ src },
+            .flags = cpp_flags,
+        });
+    }
+
+    return cimgui;
 }
