@@ -1,5 +1,5 @@
 const std = @import("std");
-const vulkan = @import("../../c/vulkan.zig");
+const vulkan = @import("vulkan");
 
 const VulkanError = @import("./VulkanSystem.zig").VulkanError;
 

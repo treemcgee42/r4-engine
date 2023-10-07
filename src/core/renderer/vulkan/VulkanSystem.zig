@@ -1,7 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const vulkan = @import("../../c/vulkan.zig");
-const glfw = @import("../../c/glfw.zig");
+const vulkan = @import("vulkan");
+const glfw = @import("glfw");
 const DebugMessenger = @import("./DebugMessenger.zig");
 const PipelineSystem = @import("./PipelineSystem.zig");
 

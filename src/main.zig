@@ -10,7 +10,7 @@ const VulkanSystem = @import("vulkan/vulkan.zig");
 const Math = @import("math.zig");
 
 const Core = @import("core/Core.zig");
-const RenderPass = @import("core/vulkan/RenderPass.zig");
+const RenderPass = @import("core/renderer/RenderPass.zig");
 
 const WIDTH: u32 = 800;
 const HEIGHT: u32 = 600;
@@ -103,18 +103,14 @@ pub fn main() !void {
     var window = try Window.init(&core, &window_init_info);
     window.setup_resize();
 
-    var primary_renderpass = try RenderPass.init_basic_primary(&core, .{
-        .tag = .basic_primary,
-        .p_window = &window,
-    });
-    try primary_renderpass.setup_imgui(&core, &window);
+    var primary_renderpass = try RenderPass.init(core.allocator, &core.renderer_context, &window.swapchain);
+    try primary_renderpass.setup_imgui(&core.renderer_context, &window);
     window.add_renderpass(primary_renderpass);
 
-    std.debug.print("about to run main loop\n", .{});
     try window.run_main_loop(&core);
     defer window.deinit(&core);
 
-    core.vulkan_system.prep_for_deinit();
+    core.renderer_context.system.vulkan.prep_for_deinit();
 
     // var app = try HelloTriangleApp.init(allocator);
     // app.setup_resize();

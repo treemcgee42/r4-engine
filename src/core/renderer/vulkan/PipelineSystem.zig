@@ -1,8 +1,8 @@
 const std = @import("std");
-const vulkan = @import("../../c/vulkan.zig");
+const vulkan = @import("vulkan");
 const VulkanError = @import("./VulkanSystem.zig").VulkanError;
-const Core = @import("../Core.zig");
-const Vertex = @import("../../vertex.zig").Vertex;
+const Vertex = @import("../../../vertex.zig").Vertex;
+const VulkanSystem = @import("./VulkanSystem.zig");
 
 const PipelineSystem = @This();
 
@@ -54,11 +54,11 @@ pub const PipelineAndLayout = struct {
 
 pub fn build_pipeline(
     self: *PipelineSystem,
-    core: *Core,
+    system: *VulkanSystem,
     info: PipelineInitInfo,
     render_pass: vulkan.VkRenderPass,
 ) VulkanError!PipelineAndLayout {
-    const layout = try self.get_or_build_pipeline_layout(core, info, render_pass);
+    const layout = try self.get_or_build_pipeline_layout(system, info, render_pass);
 
     return .{
         .layout = layout,
@@ -67,7 +67,7 @@ pub fn build_pipeline(
 
 pub fn get_or_build_pipeline_layout(
     self: *PipelineSystem,
-    core: *Core,
+    system: *VulkanSystem,
     info: PipelineInitInfo,
     render_pass: vulkan.VkRenderPass,
 ) VulkanError!vulkan.VkPipelineLayout {
@@ -80,7 +80,7 @@ pub fn get_or_build_pipeline_layout(
                 return cache_value.?;
             }
 
-            const layout = try build_default_pipeline_layout(core);
+            const layout = try build_default_pipeline_layout(system);
             try self.pipeline_layout_cache.put("default", layout);
             return layout;
         },
@@ -89,7 +89,8 @@ pub fn get_or_build_pipeline_layout(
 
 pub fn get_or_build_pipeline(
     self: *PipelineSystem,
-    core: *Core,
+    allocator: std.mem.Allocator,
+    system: *VulkanSystem,
     info: PipelineInitInfo,
     render_pass: vulkan.VkRenderPass,
 ) VulkanError!vulkan.VkPipeline {
@@ -100,15 +101,15 @@ pub fn get_or_build_pipeline(
                 return cache_value.?;
             }
 
-            const layout = try self.get_or_build_pipeline_layout(core, info, render_pass);
-            const pipeline = try build_default_pipeline(core, layout, render_pass);
+            const layout = try self.get_or_build_pipeline_layout(system, info, render_pass);
+            const pipeline = try build_default_pipeline(allocator, system, layout, render_pass);
             try self.pipeline_cache.put("default", pipeline);
             return pipeline;
         },
     }
 }
 
-fn build_default_pipeline_layout(core: *Core) VulkanError!vulkan.VkPipelineLayout {
+fn build_default_pipeline_layout(system: *VulkanSystem) VulkanError!vulkan.VkPipelineLayout {
     const pipeline_layout_info = vulkan.VkPipelineLayoutCreateInfo{
         .sType = vulkan.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
 
@@ -122,7 +123,7 @@ fn build_default_pipeline_layout(core: *Core) VulkanError!vulkan.VkPipelineLayou
     };
 
     var pipeline_layout: vulkan.VkPipelineLayout = undefined;
-    var result = vulkan.vkCreatePipelineLayout(core.vulkan_system.logical_device, &pipeline_layout_info, null, &pipeline_layout);
+    var result = vulkan.vkCreatePipelineLayout(system.logical_device, &pipeline_layout_info, null, &pipeline_layout);
     if (result != vulkan.VK_SUCCESS) {
         switch (result) {
             vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
@@ -135,17 +136,18 @@ fn build_default_pipeline_layout(core: *Core) VulkanError!vulkan.VkPipelineLayou
 }
 
 fn build_default_pipeline(
-    core: *Core,
+    allocator: std.mem.Allocator,
+    system: *VulkanSystem,
     layout: vulkan.VkPipelineLayout,
     render_pass: vulkan.VkRenderPass,
 ) VulkanError!vulkan.VkPipeline {
-    const vert_shader_code = try read_file("shaders/compiled_output/triangle.vert.spv", core.allocator);
-    defer core.allocator.free(vert_shader_code);
-    const frag_shader_code = try read_file("shaders/compiled_output/triangle.frag.spv", core.allocator);
-    defer core.allocator.free(frag_shader_code);
+    const vert_shader_code = try read_file("shaders/compiled_output/triangle.vert.spv", allocator);
+    defer allocator.free(vert_shader_code);
+    const frag_shader_code = try read_file("shaders/compiled_output/triangle.frag.spv", allocator);
+    defer allocator.free(frag_shader_code);
 
-    const vert_shader_module = try create_shader_module(core.vulkan_system.logical_device, vert_shader_code);
-    const frag_shader_module = try create_shader_module(core.vulkan_system.logical_device, frag_shader_code);
+    const vert_shader_module = try create_shader_module(system.logical_device, vert_shader_code);
+    const frag_shader_module = try create_shader_module(system.logical_device, frag_shader_code);
 
     // ---
 
@@ -310,7 +312,7 @@ fn build_default_pipeline(
     };
 
     var pipeline: vulkan.VkPipeline = undefined;
-    var result = vulkan.vkCreateGraphicsPipelines(core.vulkan_system.logical_device, @ptrCast(vulkan.VK_NULL_HANDLE), 1, &pipeline_info, null, &pipeline);
+    var result = vulkan.vkCreateGraphicsPipelines(system.logical_device, @ptrCast(vulkan.VK_NULL_HANDLE), 1, &pipeline_info, null, &pipeline);
     if (result != vulkan.VK_SUCCESS) {
         switch (result) {
             vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
@@ -322,8 +324,8 @@ fn build_default_pipeline(
 
     // ---
 
-    vulkan.vkDestroyShaderModule(core.vulkan_system.logical_device, vert_shader_module, null);
-    vulkan.vkDestroyShaderModule(core.vulkan_system.logical_device, frag_shader_module, null);
+    vulkan.vkDestroyShaderModule(system.logical_device, vert_shader_module, null);
+    vulkan.vkDestroyShaderModule(system.logical_device, frag_shader_module, null);
 
     return pipeline;
 }

@@ -1,12 +1,12 @@
 const c_string = @cImport({
     @cInclude("string.h");
 });
-const stb_image = @import("../../c.zig").stb_image;
+const stb_image = @import("../../../c.zig").stb_image;
 const std = @import("std");
-const vulkan = @import("../../c/vulkan.zig");
+const vulkan = @import("vulkan");
 const VulkanError = @import("./VulkanSystem.zig").VulkanError;
-const cbuf = @import("../../vulkan/command_buffer.zig");
-const vertex = @import("../../vertex.zig");
+const cbuf = @import("../../../vulkan/command_buffer.zig");
+const vertex = @import("../../../vertex.zig");
 
 fn find_memory_type(
     physical_device: vulkan.VkPhysicalDevice,

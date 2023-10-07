@@ -1,11 +1,11 @@
 const std = @import("std");
-const vulkan = @import("../../c/vulkan.zig");
-const cimgui = @import("../../c/cimgui.zig");
+const vulkan = @import("vulkan");
+const Window = @import("../../Window.zig");
+const cimgui = @import("cimgui");
 const VulkanError = @import("./VulkanSystem.zig").VulkanError;
-const Core = @import("../Core.zig");
 const Swapchain = @import("./Swapchain.zig");
-const Window = @import("../Window.zig");
 const PipelineSystem = @import("./PipelineSystem.zig");
+const VulkanSystem = @import("./VulkanSystem.zig");
 
 const RenderPass = @This();
 
@@ -17,18 +17,20 @@ imgui_enabled: bool,
 imgui_descriptor_pool: vulkan.VkDescriptorPool = null,
 
 pub const RenderPassInitInfo = struct {
-    tag: Tag,
-    p_window: *Window,
-
-    pub const Tag = enum {
-        basic_primary,
-    };
+    allocator: std.mem.Allocator,
+    system: *VulkanSystem,
+    swapchain: *Swapchain,
 };
 
-pub fn init_basic_primary(core: *Core, info: RenderPassInitInfo) VulkanError!RenderPass {
-    const render_pass = try build_basic_primary_renderpass(core, info.p_window);
-    const framebuffers = try create_basic_primary_framebuffers(core, info.p_window, render_pass);
-    const pipeline = try core.vulkan_system.pipeline_system.get_or_build_pipeline(core, PipelineSystem.PipelineInitInfo.init_swapchain(), render_pass);
+pub fn init_basic_primary(info: RenderPassInitInfo) VulkanError!RenderPass {
+    const render_pass = try build_basic_primary_renderpass(info.system, info.swapchain);
+    const framebuffers = try create_basic_primary_framebuffers(info.allocator, info.system, info.swapchain, render_pass);
+    const pipeline = try info.system.pipeline_system.get_or_build_pipeline(
+        info.allocator,
+        info.system,
+        PipelineSystem.PipelineInitInfo.init_swapchain(),
+        render_pass,
+    );
 
     return .{
         .render_pass = render_pass,
@@ -39,9 +41,9 @@ pub fn init_basic_primary(core: *Core, info: RenderPassInitInfo) VulkanError!Ren
     };
 }
 
-pub fn deinit(self: *RenderPass, core: *Core) void {
+pub fn deinit(self: *RenderPass, allocator: std.mem.Allocator, system: *VulkanSystem) void {
     if (self.imgui_enabled) {
-        vulkan.vkDestroyDescriptorPool(core.vulkan_system.logical_device, self.imgui_descriptor_pool, null);
+        vulkan.vkDestroyDescriptorPool(system.logical_device, self.imgui_descriptor_pool, null);
         cimgui.ImGui_ImplVulkan_Shutdown();
         cimgui.ImGui_ImplGlfw_Shutdown();
         cimgui.igDestroyContext(null);
@@ -49,14 +51,14 @@ pub fn deinit(self: *RenderPass, core: *Core) void {
 
     var i: usize = 0;
     while (i < self.framebuffers.len) : (i += 1) {
-        vulkan.vkDestroyFramebuffer(core.vulkan_system.logical_device, self.framebuffers[i], null);
+        vulkan.vkDestroyFramebuffer(system.logical_device, self.framebuffers[i], null);
     }
-    core.allocator.free(self.framebuffers);
+    allocator.free(self.framebuffers);
 
-    vulkan.vkDestroyRenderPass(core.vulkan_system.logical_device, self.render_pass, null);
+    vulkan.vkDestroyRenderPass(system.logical_device, self.render_pass, null);
 }
 
-pub fn setup_imgui(self: *RenderPass, core: *Core, window: *Window) VulkanError!void {
+pub fn setup_imgui(self: *RenderPass, system: *VulkanSystem, window: *Window) VulkanError!void {
     self.imgui_enabled = true;
 
     // --- Descriptor pool.
@@ -117,7 +119,7 @@ pub fn setup_imgui(self: *RenderPass, core: *Core, window: *Window) VulkanError!
     };
 
     var imgui_pool: vulkan.VkDescriptorPool = undefined;
-    var result = vulkan.vkCreateDescriptorPool(core.vulkan_system.logical_device, &pool_info, null, &imgui_pool);
+    var result = vulkan.vkCreateDescriptorPool(system.logical_device, &pool_info, null, &imgui_pool);
     if (result != vulkan.VK_SUCCESS) {
         switch (result) {
             vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
@@ -133,23 +135,23 @@ pub fn setup_imgui(self: *RenderPass, core: *Core, window: *Window) VulkanError!
     _ = cimgui.ImGui_ImplGlfw_InitForVulkan(@ptrCast(window.window), true);
 
     var vulkan_init_info = cimgui.ImGui_ImplVulkan_InitInfo{
-        .Instance = @ptrCast(core.vulkan_system.instance),
-        .PhysicalDevice = @ptrCast(core.vulkan_system.physical_device),
-        .Device = @ptrCast(core.vulkan_system.logical_device),
-        .Queue = @ptrCast(core.vulkan_system.graphics_queue),
+        .Instance = @ptrCast(system.instance),
+        .PhysicalDevice = @ptrCast(system.physical_device),
+        .Device = @ptrCast(system.logical_device),
+        .Queue = @ptrCast(system.graphics_queue),
         .DescriptorPool = @ptrCast(self.imgui_descriptor_pool),
-        .MinImageCount = @intCast(window.swapchain.swapchain_images.len),
-        .ImageCount = @intCast(window.swapchain.swapchain_images.len),
+        .MinImageCount = @intCast(window.swapchain.swapchain.vulkan.swapchain_images.len),
+        .ImageCount = @intCast(window.swapchain.swapchain.vulkan.swapchain_images.len),
         .MSAASamples = vulkan.VK_SAMPLE_COUNT_1_BIT,
     };
     _ = cimgui.ImGui_ImplVulkan_Init(@ptrCast(&vulkan_init_info), @ptrCast(self.render_pass));
 
     // --- Load fonts.
 
-    var command_pool = core.vulkan_system.command_pool;
-    var command_buffer = core.vulkan_system.command_buffers[0];
+    var command_pool = system.command_pool;
+    var command_buffer = system.command_buffers[0];
 
-    result = vulkan.vkResetCommandPool(core.vulkan_system.logical_device, command_pool, 0);
+    result = vulkan.vkResetCommandPool(system.logical_device, command_pool, 0);
     if (result != vulkan.VK_SUCCESS) {
         return VulkanError.vk_error_out_of_host_memory;
     }
@@ -183,11 +185,11 @@ pub fn setup_imgui(self: *RenderPass, core: *Core, window: *Window) VulkanError!
     if (result != vulkan.VK_SUCCESS) {
         return VulkanError.vk_error_out_of_host_memory;
     }
-    result = vulkan.vkQueueSubmit(core.vulkan_system.graphics_queue, 1, &end_info, null);
+    result = vulkan.vkQueueSubmit(system.graphics_queue, 1, &end_info, null);
     if (result != vulkan.VK_SUCCESS) {
         return VulkanError.vk_error_out_of_host_memory;
     }
-    result = vulkan.vkDeviceWaitIdle(core.vulkan_system.logical_device);
+    result = vulkan.vkDeviceWaitIdle(system.logical_device);
     if (result != vulkan.VK_SUCCESS) {
         return VulkanError.vk_error_out_of_host_memory;
     }
@@ -206,7 +208,7 @@ pub fn setup_imgui(self: *RenderPass, core: *Core, window: *Window) VulkanError!
     std.log.info("imgui initialized", .{});
 }
 
-pub fn record_commands(self: *RenderPass, window: *Window, command_buffer: vulkan.VkCommandBuffer, image_index: u32) void {
+pub fn begin(self: *RenderPass, swapchain: *Swapchain, command_buffer: vulkan.VkCommandBuffer, image_index: u32) void {
     // --- Begin render pass.
 
     const clear_values = [_]vulkan.VkClearValue{
@@ -229,7 +231,46 @@ pub fn record_commands(self: *RenderPass, window: *Window, command_buffer: vulka
         .framebuffer = self.framebuffers[image_index],
         .renderArea = vulkan.VkRect2D{
             .offset = .{ .x = 0, .y = 0 },
-            .extent = window.swapchain.swapchain_extent,
+            .extent = swapchain.swapchain_extent,
+        },
+        .clearValueCount = clear_values.len,
+        .pClearValues = clear_values[0..].ptr,
+
+        .pNext = null,
+    };
+
+    vulkan.vkCmdBeginRenderPass(command_buffer, &render_pass_info, vulkan.VK_SUBPASS_CONTENTS_INLINE);
+}
+
+pub fn end(self: *RenderPass, command_buffer: vulkan.VkCommandBuffer) void {
+    _ = self;
+    vulkan.vkCmdEndRenderPass(command_buffer);
+}
+
+pub fn record_commands(self: *RenderPass, swapchain: *Swapchain, command_buffer: vulkan.VkCommandBuffer, image_index: u32) void {
+    // --- Begin render pass.
+
+    const clear_values = [_]vulkan.VkClearValue{
+        .{
+            .color = .{
+                .float32 = [_]f32{ 0.0, 0.0, 0.0, 1.0 },
+            },
+        },
+        .{
+            .depthStencil = .{
+                .depth = 1.0,
+                .stencil = 0,
+            },
+        },
+    };
+
+    const render_pass_info = vulkan.VkRenderPassBeginInfo{
+        .sType = vulkan.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+        .renderPass = self.render_pass,
+        .framebuffer = self.framebuffers[image_index],
+        .renderArea = vulkan.VkRect2D{
+            .offset = .{ .x = 0, .y = 0 },
+            .extent = swapchain.swapchain_extent,
         },
         .clearValueCount = clear_values.len,
         .pClearValues = clear_values[0..].ptr,
@@ -246,8 +287,8 @@ pub fn record_commands(self: *RenderPass, window: *Window, command_buffer: vulka
     const viewport = vulkan.VkViewport{
         .x = 0.0,
         .y = 0.0,
-        .width = @floatFromInt(window.swapchain.swapchain_extent.width),
-        .height = @floatFromInt(window.swapchain.swapchain_extent.height),
+        .width = @floatFromInt(swapchain.swapchain_extent.width),
+        .height = @floatFromInt(swapchain.swapchain_extent.height),
         .minDepth = 0.0,
         .maxDepth = 1.0,
     };
@@ -255,7 +296,7 @@ pub fn record_commands(self: *RenderPass, window: *Window, command_buffer: vulka
 
     const scissor = vulkan.VkRect2D{
         .offset = .{ .x = 0, .y = 0 },
-        .extent = window.swapchain.swapchain_extent,
+        .extent = swapchain.swapchain_extent,
     };
     vulkan.vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 
@@ -270,14 +311,19 @@ pub fn record_commands(self: *RenderPass, window: *Window, command_buffer: vulka
     vulkan.vkCmdEndRenderPass(command_buffer);
 }
 
-pub fn recreate_swapchain_callback(self: *RenderPass, window: *Window, core: *Core) VulkanError!void {
+pub fn recreate_swapchain_callback(
+    self: *RenderPass,
+    allocator: std.mem.Allocator,
+    system: *VulkanSystem,
+    swapchain: *Swapchain,
+) VulkanError!void {
     var i: usize = 0;
     while (i < self.framebuffers.len) : (i += 1) {
-        vulkan.vkDestroyFramebuffer(core.vulkan_system.logical_device, self.framebuffers[i], null);
+        vulkan.vkDestroyFramebuffer(system.logical_device, self.framebuffers[i], null);
     }
-    core.allocator.free(self.framebuffers);
+    allocator.free(self.framebuffers);
 
-    self.framebuffers = try create_basic_primary_framebuffers(core, window, self.render_pass);
+    self.framebuffers = try create_basic_primary_framebuffers(allocator, system, swapchain, self.render_pass);
 }
 
 // --- Vulkan renderpass. {{{1
@@ -287,9 +333,9 @@ const AttachmentAndRef = struct {
     ref: vulkan.VkAttachmentReference,
 };
 
-fn build_color_attachment(window: *Window) VulkanError!AttachmentAndRef {
+fn build_color_attachment(swapchain: *Swapchain) VulkanError!AttachmentAndRef {
     const color_attachment = vulkan.VkAttachmentDescription{
-        .format = window.swapchain.swapchain_image_format,
+        .format = swapchain.swapchain_image_format,
         // The top-level render pass doesn't need multisampling.
         .samples = 1,
         .loadOp = vulkan.VK_ATTACHMENT_LOAD_OP_CLEAR,
@@ -311,11 +357,11 @@ fn build_color_attachment(window: *Window) VulkanError!AttachmentAndRef {
     };
 }
 
-fn build_basic_primary_renderpass(core: *Core, window: *Window) VulkanError!vulkan.VkRenderPass {
+fn build_basic_primary_renderpass(system: *VulkanSystem, swapchain: *Swapchain) VulkanError!vulkan.VkRenderPass {
     // --- Attachments.
 
     const color_attachment_count = 1;
-    var color_attachment = try build_color_attachment(window);
+    var color_attachment = try build_color_attachment(swapchain);
     var pColorAttachments: [*c]vulkan.VkAttachmentReference = &color_attachment.ref;
 
     // --- Subpass.
@@ -352,7 +398,7 @@ fn build_basic_primary_renderpass(core: *Core, window: *Window) VulkanError!vulk
     };
 
     var render_pass: vulkan.VkRenderPass = undefined;
-    const result = vulkan.vkCreateRenderPass(core.vulkan_system.logical_device, &render_pass_info, null, &render_pass);
+    const result = vulkan.vkCreateRenderPass(system.logical_device, &render_pass_info, null, &render_pass);
     if (result != vulkan.VK_SUCCESS) {
         switch (result) {
             vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
@@ -369,17 +415,18 @@ fn build_basic_primary_renderpass(core: *Core, window: *Window) VulkanError!vulk
 // --- Framebuffers. {{{1
 
 fn create_basic_primary_framebuffers(
-    core: *Core,
-    window: *Window,
+    allocator: std.mem.Allocator,
+    system: *VulkanSystem,
+    swapchain: *Swapchain,
     render_pass: vulkan.VkRenderPass,
 ) VulkanError![]vulkan.VkFramebuffer {
-    var framebuffers = try core.allocator.alloc(vulkan.VkFramebuffer, window.swapchain.swapchain_image_views.len);
-    errdefer core.allocator.free(framebuffers);
+    var framebuffers = try allocator.alloc(vulkan.VkFramebuffer, swapchain.swapchain_image_views.len);
+    errdefer allocator.free(framebuffers);
 
     var i: usize = 0;
-    while (i < window.swapchain.swapchain_image_views.len) : (i += 1) {
+    while (i < swapchain.swapchain_image_views.len) : (i += 1) {
         const attachments = [_]vulkan.VkImageView{
-            window.swapchain.swapchain_image_views[i],
+            swapchain.swapchain_image_views[i],
         };
 
         var framebuffer_info = vulkan.VkFramebufferCreateInfo{
@@ -387,15 +434,15 @@ fn create_basic_primary_framebuffers(
             .renderPass = render_pass,
             .attachmentCount = attachments.len,
             .pAttachments = attachments[0..].ptr,
-            .width = window.swapchain.swapchain_extent.width,
-            .height = window.swapchain.swapchain_extent.height,
+            .width = swapchain.swapchain_extent.width,
+            .height = swapchain.swapchain_extent.height,
             .layers = 1,
 
             .pNext = null,
             .flags = 0,
         };
 
-        const result = vulkan.vkCreateFramebuffer(core.vulkan_system.logical_device, &framebuffer_info, null, &framebuffers[i]);
+        const result = vulkan.vkCreateFramebuffer(system.logical_device, &framebuffer_info, null, &framebuffers[i]);
         if (result != vulkan.VK_SUCCESS) {
             switch (result) {
                 vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,

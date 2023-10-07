@@ -25,9 +25,10 @@ pub fn build(b: *std.Build) void {
     });
 
     exe.linkLibC();
+    exe.linkLibCpp();
 
     // GLFW.
-    link_glfw(exe);
+    link_glfw(b, exe, true);
 
     // CGLM.
     exe.addLibraryPath(.{ .path = "./external/cglm-0.9.1/build" });
@@ -35,7 +36,6 @@ pub fn build(b: *std.Build) void {
     exe.addIncludePath(.{ .path = "./external/cglm-0.9.1/include" });
 
     // VULKAN.
-    exe.linkLibCpp();
     exe.linkFramework("Metal");
     exe.linkFramework("Foundation");
     exe.linkFramework("QuartzCore");
@@ -44,7 +44,7 @@ pub fn build(b: *std.Build) void {
     exe.linkFramework("Cocoa");
     exe.linkFramework("CoreVideo");
 
-    link_vulkan(exe);
+    link_vulkan(b, exe, true);
 
     // STB_IMAGE.
     exe.addIncludePath(.{ .path = "./external/stb_image" });
@@ -60,12 +60,14 @@ pub fn build(b: *std.Build) void {
         .flags = &[_][]const u8{},
     });
 
-    // // CIMGUI.
+    // CIMGUI.
     exe.addIncludePath(.{ .path = "./external/cimgui" });
     exe.addIncludePath(.{ .path = "./external/cimgui/generator/output" });
-    // exe.addLibraryPath(.{ .path = "./external/cimgui/build" });
-    // exe.linkSystemLibrary("cimgui");
     exe.linkLibrary(build_cimgui(b, target));
+    const cimgui_module = b.createModule(.{
+        .source_file = .{ .path = "src/c/cimgui.zig" },
+    });
+    exe.addModule("cimgui", cimgui_module);
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
@@ -112,17 +114,32 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_unit_tests.step);
 }
 
-fn link_glfw(exe: *std.build.Step.Compile) void {
+fn link_glfw(b: *std.Build, exe: *std.build.Step.Compile, add_module: bool) void {
     exe.addLibraryPath(.{ .path = "/opt/homebrew/opt/glfw/lib" });
     exe.linkSystemLibrary("glfw.3.3");
     exe.addIncludePath(.{ .path = "/opt/homebrew/opt/glfw/include" });
+
+    if (add_module) {
+        const glfw_module = b.createModule(.{
+            .source_file = .{ .path = "src/c/glfw.zig" },
+        });
+        exe.addModule("glfw", glfw_module);
+    }
 }
 
-fn link_vulkan(exe: *std.build.Step.Compile) void {
+fn link_vulkan(b: *std.Build, exe: *std.build.Step.Compile, add_module: bool) void {
     exe.addLibraryPath(.{ .path = "/Users/ogmalladii/VulkanSDK/1.3.261.1/macOS/lib" });
     exe.linkSystemLibrary("vulkan.1");
     exe.linkSystemLibrary("vulkan.1.3.261");
     exe.addIncludePath(.{ .path = "/Users/ogmalladii/VulkanSDK/1.3.261.1/macOS/include" });
+
+    if (add_module) {
+        const vulkan_module = b.createModule(.{
+            .source_file = .{ .path = "src/c/vulkan.zig" },
+        });
+
+        exe.addModule("vulkan", vulkan_module);
+    }
 }
 
 fn build_cimgui(b: *std.Build, target: std.zig.CrossTarget) *std.build.Step.Compile {
@@ -148,8 +165,8 @@ fn build_cimgui(b: *std.Build, target: std.zig.CrossTarget) *std.build.Step.Comp
     cimgui.linkLibC();
     cimgui.linkLibCpp();
 
-    link_glfw(cimgui);
-    link_vulkan(cimgui);
+    link_glfw(b, cimgui, false);
+    link_vulkan(b, cimgui, false);
 
     cimgui.addIncludePath(.{ .path = dir });
     cimgui.addIncludePath(.{ .path = dir ++ "/imgui" });

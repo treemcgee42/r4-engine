@@ -1,13 +1,13 @@
 const std = @import("std");
-const glfw = @import("../c/glfw.zig");
-const VulkanSystem = @import("vulkan/VulkanSystem.zig");
+const glfw = @import("glfw");
+const RendererContext = @import("renderer/Context.zig");
 
 const Core = @This();
 
 // gpa: std.heap.GeneralPurposeAllocator(.{}),
 allocator: std.mem.Allocator,
 
-vulkan_system: VulkanSystem,
+renderer_context: RendererContext,
 
 pub const CoreInitError = error{
     glfw_init_failed,
@@ -23,7 +23,7 @@ pub fn init(allocator: std.mem.Allocator) CoreInitError!Core {
         return CoreInitError.glfw_init_failed;
     }
 
-    var vulkan_system = VulkanSystem.init(allocator) catch {
+    var renderer_context = RendererContext.init(allocator, .vulkan) catch {
         return CoreInitError.vulkan_init_failed;
     };
 
@@ -31,11 +31,11 @@ pub fn init(allocator: std.mem.Allocator) CoreInitError!Core {
         // .gpa = gpa,
         .allocator = allocator,
 
-        .vulkan_system = vulkan_system,
+        .renderer_context = renderer_context,
     };
 }
 
 pub fn deinit(self: *Core) void {
-    self.vulkan_system.deinit(self.allocator);
+    self.renderer_context.system.vulkan.deinit(self.allocator);
     // _ = self.gpa.deinit();
 }

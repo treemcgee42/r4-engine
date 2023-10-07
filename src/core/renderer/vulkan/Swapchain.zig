@@ -1,13 +1,12 @@
 const std = @import("std");
-const glfw = @import("../../c/glfw.zig");
-const vulkan = @import("../../c/vulkan.zig");
+const glfw = @import("glfw");
+const vulkan = @import("vulkan");
 const VulkanError = @import("./VulkanSystem.zig").VulkanError;
 const SwapchainSettings = @import("./VulkanSystem.zig").SwapchainSettings;
 pub const query_swapchain_settings = @import("./VulkanSystem.zig").query_swapchain_settings;
 const buffer = @import("./buffer.zig");
-const Core = @import("../Core.zig");
-const create_swapchain_framebuffers = @import("./framebuffer.zig").create_swapchain_framebuffers;
 const RenderPass = @import("./RenderPass.zig");
+const VulkanSystem = @import("./VulkanSystem.zig");
 
 const Swapchain = @This();
 
@@ -25,25 +24,25 @@ current_frame: usize = 0,
 
 pub const max_frames_in_flight: usize = 2;
 
-pub fn init(core: *Core, surface: vulkan.VkSurfaceKHR) VulkanError!Swapchain {
+pub fn init(allocator: std.mem.Allocator, system: *VulkanSystem, surface: vulkan.VkSurfaceKHR) VulkanError!Swapchain {
     const swapchain_settings = try query_swapchain_settings(
-        core.allocator,
-        core.vulkan_system.physical_device,
-        core.vulkan_system.logical_device,
+        allocator,
+        system.physical_device,
+        system.logical_device,
         surface,
     );
 
-    const swapchain_info = try create_swapchain(core.allocator, swapchain_settings);
+    const swapchain_info = try create_swapchain(allocator, swapchain_settings);
     const swapchain_image_views = try create_image_views(
-        core.allocator,
-        core.vulkan_system.logical_device,
+        allocator,
+        system.logical_device,
         swapchain_info.images,
         swapchain_info.image_format,
     );
 
     const sync_objects = try create_sync_objects(
-        core.allocator,
-        core.vulkan_system.logical_device,
+        allocator,
+        system.logical_device,
     );
 
     return .{
@@ -59,29 +58,30 @@ pub fn init(core: *Core, surface: vulkan.VkSurfaceKHR) VulkanError!Swapchain {
     };
 }
 
-pub fn deinit(self: Swapchain, core: *Core) void {
+pub fn deinit(self: Swapchain, allocator: std.mem.Allocator, system: *VulkanSystem) void {
     var i: usize = 0;
     while (i < max_frames_in_flight) : (i += 1) {
-        vulkan.vkDestroySemaphore(core.vulkan_system.logical_device, self.image_available_semaphores[i], null);
-        vulkan.vkDestroySemaphore(core.vulkan_system.logical_device, self.render_finished_semaphores[i], null);
-        vulkan.vkDestroyFence(core.vulkan_system.logical_device, self.in_flight_fences[i], null);
+        vulkan.vkDestroySemaphore(system.logical_device, self.image_available_semaphores[i], null);
+        vulkan.vkDestroySemaphore(system.logical_device, self.render_finished_semaphores[i], null);
+        vulkan.vkDestroyFence(system.logical_device, self.in_flight_fences[i], null);
     }
-    core.allocator.free(self.image_available_semaphores);
-    core.allocator.free(self.render_finished_semaphores);
-    core.allocator.free(self.in_flight_fences);
+    allocator.free(self.image_available_semaphores);
+    allocator.free(self.render_finished_semaphores);
+    allocator.free(self.in_flight_fences);
 
     i = 0;
     while (i < self.swapchain_image_views.len) : (i += 1) {
-        vulkan.vkDestroyImageView(core.vulkan_system.logical_device, self.swapchain_image_views[i], null);
+        vulkan.vkDestroyImageView(system.logical_device, self.swapchain_image_views[i], null);
     }
-    core.allocator.free(self.swapchain_image_views);
-    core.allocator.free(self.swapchain_images);
-    vulkan.vkDestroySwapchainKHR(core.vulkan_system.logical_device, self.swapchain, null);
+    allocator.free(self.swapchain_image_views);
+    allocator.free(self.swapchain_images);
+    vulkan.vkDestroySwapchainKHR(system.logical_device, self.swapchain, null);
 }
 
 pub fn recreate_swapchain(
     self: *Swapchain,
-    core: *Core,
+    allocator: std.mem.Allocator,
+    system: *VulkanSystem,
     swapchain_settings: SwapchainSettings,
     window: *glfw.GLFWwindow,
 ) VulkanError!void {
@@ -93,7 +93,7 @@ pub fn recreate_swapchain(
         glfw.glfwWaitEvents();
     }
 
-    var result = vulkan.vkDeviceWaitIdle(core.vulkan_system.logical_device);
+    var result = vulkan.vkDeviceWaitIdle(system.logical_device);
     if (result != vulkan.VK_SUCCESS) {
         unreachable;
     }
@@ -102,21 +102,21 @@ pub fn recreate_swapchain(
 
     var i: usize = 0;
     while (i < self.swapchain_image_views.len) : (i += 1) {
-        vulkan.vkDestroyImageView(core.vulkan_system.logical_device, self.swapchain_image_views[i], null);
+        vulkan.vkDestroyImageView(system.logical_device, self.swapchain_image_views[i], null);
     }
-    core.allocator.free(self.swapchain_image_views);
-    core.allocator.free(self.swapchain_images);
-    vulkan.vkDestroySwapchainKHR(core.vulkan_system.logical_device, self.swapchain, null);
+    allocator.free(self.swapchain_image_views);
+    allocator.free(self.swapchain_images);
+    vulkan.vkDestroySwapchainKHR(system.logical_device, self.swapchain, null);
 
     // ---
 
     const swapchain_info = try create_swapchain(
-        core.allocator,
+        allocator,
         swapchain_settings,
     );
     const swapchain_image_views = try create_image_views(
-        core.allocator,
-        core.vulkan_system.logical_device,
+        allocator,
+        system.logical_device,
         swapchain_info.images,
         swapchain_info.image_format,
     );
