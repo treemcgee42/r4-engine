@@ -103,14 +103,10 @@ pub fn main() !void {
     var window = try Window.init(&core, &window_init_info);
     window.setup_resize();
 
-    var primary_renderpass = try RenderPass.init(core.allocator, &core.renderer_context, &window.swapchain);
-    try primary_renderpass.setup_imgui(&core.renderer_context, &window);
-    window.add_renderpass(primary_renderpass);
-
     try window.run_main_loop(&core);
     defer window.deinit(&core);
 
-    core.renderer_context.system.vulkan.prep_for_deinit();
+    core.renderer.system.vulkan.prep_for_deinit();
 
     // var app = try HelloTriangleApp.init(allocator);
     // app.setup_resize();

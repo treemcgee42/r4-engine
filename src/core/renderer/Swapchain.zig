@@ -1,5 +1,5 @@
 const std = @import("std");
-const Context = @import("./Context.zig");
+const Renderer = @import("./Renderer.zig");
 const VulkanSwapchain = @import("vulkan//Swapchain.zig");
 const Surface = @import("./Surface.zig");
 const Window = @import("../Window.zig");
@@ -13,12 +13,12 @@ pub const max_frames_in_flight: usize = VulkanSwapchain.max_frames_in_flight;
 
 const Swapchain = @This();
 
-pub fn init(allocator: std.mem.Allocator, context: *Context, surface: *const Surface) !Swapchain {
-    const swapchain = try switch (context.backend) {
-        .vulkan => VulkanSwapchain.init(allocator, &context.system.vulkan, surface.surface.vulkan),
+pub fn init(renderer: *Renderer, surface: *const Surface) !Swapchain {
+    const swapchain = try switch (renderer.backend) {
+        .vulkan => VulkanSwapchain.init(renderer.allocator, &renderer.system.vulkan, surface.surface.vulkan),
     };
 
-    const num_images = switch (context.backend) {
+    const num_images = switch (renderer.backend) {
         .vulkan => swapchain.swapchain_image_views.len,
     };
 
@@ -28,24 +28,24 @@ pub fn init(allocator: std.mem.Allocator, context: *Context, surface: *const Sur
     };
 }
 
-pub fn recreate(self: *Swapchain, allocator: std.mem.Allocator, context: *Context, window: *Window) !void {
-    switch (context.backend) {
+pub fn recreate(self: *Swapchain, renderer: *Renderer, window: *Window) !void {
+    switch (renderer.backend) {
         .vulkan => {
             const swapchain_settings = try VulkanSwapchain.query_swapchain_settings(
-                allocator,
-                context.system.vulkan.physical_device,
-                context.system.vulkan.logical_device,
+                renderer.allocator,
+                renderer.system.vulkan.physical_device,
+                renderer.system.vulkan.logical_device,
                 window.surface.surface.vulkan,
             );
-            try self.swapchain.vulkan.recreate_swapchain(allocator, &context.system.vulkan, swapchain_settings, window.window);
+            try self.swapchain.vulkan.recreate_swapchain(renderer.allocator, &renderer.system.vulkan, swapchain_settings, window.window);
         },
     }
 }
 
-pub fn deinit(self: Swapchain, allocator: std.mem.Allocator, context: *Context) void {
-    switch (context.backend) {
+pub fn deinit(self: Swapchain, renderer: *Renderer) void {
+    switch (renderer.backend) {
         .vulkan => {
-            self.swapchain.vulkan.deinit(allocator, &context.system.vulkan);
+            self.swapchain.vulkan.deinit(renderer.allocator, &renderer.system.vulkan);
         },
     }
 }

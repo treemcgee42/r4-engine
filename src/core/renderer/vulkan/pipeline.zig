@@ -1,115 +1,14 @@
 const std = @import("std");
-const vulkan = @import("vulkan");
-const VulkanError = @import("./VulkanSystem.zig").VulkanError;
-const Vertex = @import("../../../vertex.zig").Vertex;
+const PipelineInfo = @import("../pipeline.zig").PipelineInfo;
 const VulkanSystem = @import("./VulkanSystem.zig");
+const VulkanError = VulkanSystem.VulkanError;
+const vulkan = @import("vulkan");
+const Renderer = @import("../Renderer.zig");
 
-const PipelineSystem = @This();
+pub fn build_pipeline(renderer: *Renderer, info: PipelineInfo) VulkanError!vulkan.VkPipeline {
+    const allocator = renderer.allocator;
+    var system = renderer.system.vulkan;
 
-pipeline_layout_cache: std.StringHashMap(vulkan.VkPipelineLayout),
-pipeline_cache: std.StringHashMap(vulkan.VkPipeline),
-
-pub const PipelineInitInfo = struct {
-    kind: Kind,
-
-    pub const Kind = enum {
-        default,
-    };
-
-    pub fn init_swapchain() PipelineInitInfo {
-        return .{
-            .kind = .default,
-        };
-    }
-};
-
-pub fn init(allocator_: std.mem.Allocator) VulkanError!PipelineSystem {
-    const pipeline_layout_cache = std.StringHashMap(vulkan.VkPipelineLayout).init(allocator_);
-    const pipeline_cache = std.StringHashMap(vulkan.VkPipeline).init(allocator_);
-
-    return .{
-        .pipeline_layout_cache = pipeline_layout_cache,
-        .pipeline_cache = pipeline_cache,
-    };
-}
-
-pub fn deinit(self: *PipelineSystem, device: vulkan.VkDevice) void {
-    var layout_iterator = self.pipeline_layout_cache.iterator();
-    while (layout_iterator.next()) |entry| {
-        vulkan.vkDestroyPipelineLayout(device, entry.value_ptr.*, null);
-    }
-    var pipeline_iterator = self.pipeline_cache.iterator();
-    while (pipeline_iterator.next()) |entry| {
-        vulkan.vkDestroyPipeline(device, entry.value_ptr.*, null);
-    }
-
-    self.pipeline_layout_cache.deinit();
-    self.pipeline_cache.deinit();
-}
-
-pub const PipelineAndLayout = struct {
-    pipeline: vulkan.VkPipeline,
-    layout: vulkan.VkPipelineLayout,
-};
-
-pub fn build_pipeline(
-    self: *PipelineSystem,
-    system: *VulkanSystem,
-    info: PipelineInitInfo,
-    render_pass: vulkan.VkRenderPass,
-) VulkanError!PipelineAndLayout {
-    const layout = try self.get_or_build_pipeline_layout(system, info, render_pass);
-
-    return .{
-        .layout = layout,
-    };
-}
-
-pub fn get_or_build_pipeline_layout(
-    self: *PipelineSystem,
-    system: *VulkanSystem,
-    info: PipelineInitInfo,
-    render_pass: vulkan.VkRenderPass,
-) VulkanError!vulkan.VkPipelineLayout {
-    _ = render_pass;
-
-    switch (info.kind) {
-        .default => {
-            const cache_value = self.pipeline_layout_cache.get("default");
-            if (cache_value != null) {
-                return cache_value.?;
-            }
-
-            const layout = try build_default_pipeline_layout(system);
-            try self.pipeline_layout_cache.put("default", layout);
-            return layout;
-        },
-    }
-}
-
-pub fn get_or_build_pipeline(
-    self: *PipelineSystem,
-    allocator: std.mem.Allocator,
-    system: *VulkanSystem,
-    info: PipelineInitInfo,
-    render_pass: vulkan.VkRenderPass,
-) VulkanError!vulkan.VkPipeline {
-    switch (info.kind) {
-        .default => {
-            const cache_value = self.pipeline_cache.get("default");
-            if (cache_value != null) {
-                return cache_value.?;
-            }
-
-            const layout = try self.get_or_build_pipeline_layout(system, info, render_pass);
-            const pipeline = try build_default_pipeline(allocator, system, layout, render_pass);
-            try self.pipeline_cache.put("default", pipeline);
-            return pipeline;
-        },
-    }
-}
-
-fn build_default_pipeline_layout(system: *VulkanSystem) VulkanError!vulkan.VkPipelineLayout {
     const pipeline_layout_info = vulkan.VkPipelineLayoutCreateInfo{
         .sType = vulkan.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
 
@@ -126,24 +25,17 @@ fn build_default_pipeline_layout(system: *VulkanSystem) VulkanError!vulkan.VkPip
     var result = vulkan.vkCreatePipelineLayout(system.logical_device, &pipeline_layout_info, null, &pipeline_layout);
     if (result != vulkan.VK_SUCCESS) {
         switch (result) {
-            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
-            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanSystem.VulkanError.vk_error_out_of_host_memory,
+            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanSystem.VulkanError.vk_error_out_of_device_memory,
             else => unreachable,
         }
     }
 
-    return pipeline_layout;
-}
+    // ---
 
-fn build_default_pipeline(
-    allocator: std.mem.Allocator,
-    system: *VulkanSystem,
-    layout: vulkan.VkPipelineLayout,
-    render_pass: vulkan.VkRenderPass,
-) VulkanError!vulkan.VkPipeline {
-    const vert_shader_code = try read_file("shaders/compiled_output/triangle.vert.spv", allocator);
+    const vert_shader_code = try read_file(info.vertex_shader_filename, allocator);
     defer allocator.free(vert_shader_code);
-    const frag_shader_code = try read_file("shaders/compiled_output/triangle.frag.spv", allocator);
+    const frag_shader_code = try read_file(info.fragment_shader_filename, allocator);
     defer allocator.free(frag_shader_code);
 
     const vert_shader_module = try create_shader_module(system.logical_device, vert_shader_code);
@@ -190,9 +82,13 @@ fn build_default_pipeline(
         .flags = 0,
     };
 
+    const topology = switch (info.topology) {
+        .triangle_list => vulkan.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+    };
+
     const input_assembly = vulkan.VkPipelineInputAssemblyStateCreateInfo{
         .sType = vulkan.VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-        .topology = vulkan.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+        .topology = topology,
         .primitiveRestartEnable = vulkan.VK_FALSE,
         .pNext = null,
         .flags = 0,
@@ -224,6 +120,11 @@ fn build_default_pipeline(
 
     // --- Rasterizer.
 
+    const frontFace = switch (info.front_face_orientation) {
+        .clockwise => vulkan.VK_FRONT_FACE_CLOCKWISE,
+        .counter_clockwise => vulkan.VK_FRONT_FACE_COUNTER_CLOCKWISE,
+    };
+
     const rasterizer = vulkan.VkPipelineRasterizationStateCreateInfo{
         .sType = vulkan.VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
         .depthClampEnable = vulkan.VK_FALSE,
@@ -231,7 +132,7 @@ fn build_default_pipeline(
         .polygonMode = vulkan.VK_POLYGON_MODE_FILL,
         .lineWidth = 1.0,
         .cullMode = vulkan.VK_CULL_MODE_BACK_BIT,
-        .frontFace = vulkan.VK_FRONT_FACE_CLOCKWISE, // CW / CCW
+        .frontFace = @intCast(frontFace),
         .depthBiasEnable = vulkan.VK_FALSE,
         .pNext = null,
         .flags = 0,
@@ -288,6 +189,8 @@ fn build_default_pipeline(
 
     // -- Pipeline.
 
+    const render_pass = renderer.render_passes.items[info.render_pass].render_pass.vulkan.render_pass;
+
     const pipeline_info = vulkan.VkGraphicsPipelineCreateInfo{
         .sType = vulkan.VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
         .stageCount = shader_stages.len,
@@ -299,7 +202,7 @@ fn build_default_pipeline(
         .pMultisampleState = &multisampling,
         .pColorBlendState = &color_blending,
         .pDynamicState = &dynamic_state,
-        .layout = layout,
+        .layout = pipeline_layout,
         .renderPass = render_pass,
         .subpass = 0,
         .pDepthStencilState = null,
@@ -312,7 +215,7 @@ fn build_default_pipeline(
     };
 
     var pipeline: vulkan.VkPipeline = undefined;
-    var result = vulkan.vkCreateGraphicsPipelines(system.logical_device, @ptrCast(vulkan.VK_NULL_HANDLE), 1, &pipeline_info, null, &pipeline);
+    result = vulkan.vkCreateGraphicsPipelines(system.logical_device, @ptrCast(vulkan.VK_NULL_HANDLE), 1, &pipeline_info, null, &pipeline);
     if (result != vulkan.VK_SUCCESS) {
         switch (result) {
             vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
@@ -323,6 +226,9 @@ fn build_default_pipeline(
     }
 
     // ---
+
+    // TODO: can this be destroyed here?
+    vulkan.vkDestroyPipelineLayout(system.logical_device, pipeline_layout, null);
 
     vulkan.vkDestroyShaderModule(system.logical_device, vert_shader_module, null);
     vulkan.vkDestroyShaderModule(system.logical_device, frag_shader_module, null);

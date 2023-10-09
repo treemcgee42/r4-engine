@@ -3,7 +3,6 @@ const builtin = @import("builtin");
 const vulkan = @import("vulkan");
 const glfw = @import("glfw");
 const DebugMessenger = @import("./DebugMessenger.zig");
-const PipelineSystem = @import("./PipelineSystem.zig");
 
 const VulkanSystem = @This();
 
@@ -19,8 +18,6 @@ present_queue: vulkan.VkQueue,
 
 command_pool: vulkan.VkCommandPool,
 command_buffers: []vulkan.VkCommandBuffer,
-
-pipeline_system: PipelineSystem,
 
 max_usable_sample_count: vulkan.VkSampleCountFlagBits,
 
@@ -104,8 +101,6 @@ pub fn init(allocator_: std.mem.Allocator) VulkanError!VulkanSystem {
     const command_pool = try create_command_pool(allocator_, physical_device, logical_device, surface);
     const command_buffers = try create_command_buffers(allocator_, logical_device, command_pool);
 
-    const pipeline_system = try PipelineSystem.init(allocator_);
-
     // ---
 
     const max_usable_sample_count = try get_max_usable_sample_count(physical_device);
@@ -126,16 +121,12 @@ pub fn init(allocator_: std.mem.Allocator) VulkanError!VulkanSystem {
         .command_pool = command_pool,
         .command_buffers = command_buffers,
 
-        .pipeline_system = pipeline_system,
-
         .max_usable_sample_count = max_usable_sample_count,
     };
 }
 
 pub fn deinit(self: *VulkanSystem, allocator_: std.mem.Allocator) void {
     self.support_details.deinit(allocator_);
-
-    self.pipeline_system.deinit(self.logical_device);
 
     vulkan.vkDestroyCommandPool(self.logical_device, self.command_pool, null);
     allocator_.free(self.command_buffers);

@@ -4,14 +4,12 @@ const Window = @import("../../Window.zig");
 const cimgui = @import("cimgui");
 const VulkanError = @import("./VulkanSystem.zig").VulkanError;
 const Swapchain = @import("./Swapchain.zig");
-const PipelineSystem = @import("./PipelineSystem.zig");
 const VulkanSystem = @import("./VulkanSystem.zig");
 
 const RenderPass = @This();
 
 render_pass: vulkan.VkRenderPass,
 framebuffers: []vulkan.VkFramebuffer,
-pipeline: vulkan.VkPipeline,
 
 imgui_enabled: bool,
 imgui_descriptor_pool: vulkan.VkDescriptorPool = null,
@@ -25,17 +23,10 @@ pub const RenderPassInitInfo = struct {
 pub fn init_basic_primary(info: RenderPassInitInfo) VulkanError!RenderPass {
     const render_pass = try build_basic_primary_renderpass(info.system, info.swapchain);
     const framebuffers = try create_basic_primary_framebuffers(info.allocator, info.system, info.swapchain, render_pass);
-    const pipeline = try info.system.pipeline_system.get_or_build_pipeline(
-        info.allocator,
-        info.system,
-        PipelineSystem.PipelineInitInfo.init_swapchain(),
-        render_pass,
-    );
 
     return .{
         .render_pass = render_pass,
         .framebuffers = framebuffers,
-        .pipeline = pipeline,
 
         .imgui_enabled = false,
     };
@@ -243,70 +234,9 @@ pub fn begin(self: *RenderPass, swapchain: *Swapchain, command_buffer: vulkan.Vk
 }
 
 pub fn end(self: *RenderPass, command_buffer: vulkan.VkCommandBuffer) void {
-    _ = self;
-    vulkan.vkCmdEndRenderPass(command_buffer);
-}
-
-pub fn record_commands(self: *RenderPass, swapchain: *Swapchain, command_buffer: vulkan.VkCommandBuffer, image_index: u32) void {
-    // --- Begin render pass.
-
-    const clear_values = [_]vulkan.VkClearValue{
-        .{
-            .color = .{
-                .float32 = [_]f32{ 0.0, 0.0, 0.0, 1.0 },
-            },
-        },
-        .{
-            .depthStencil = .{
-                .depth = 1.0,
-                .stencil = 0,
-            },
-        },
-    };
-
-    const render_pass_info = vulkan.VkRenderPassBeginInfo{
-        .sType = vulkan.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-        .renderPass = self.render_pass,
-        .framebuffer = self.framebuffers[image_index],
-        .renderArea = vulkan.VkRect2D{
-            .offset = .{ .x = 0, .y = 0 },
-            .extent = swapchain.swapchain_extent,
-        },
-        .clearValueCount = clear_values.len,
-        .pClearValues = clear_values[0..].ptr,
-
-        .pNext = null,
-    };
-
-    vulkan.vkCmdBeginRenderPass(command_buffer, &render_pass_info, vulkan.VK_SUBPASS_CONTENTS_INLINE);
-
-    // --- Draw.
-
-    vulkan.vkCmdBindPipeline(command_buffer, vulkan.VK_PIPELINE_BIND_POINT_GRAPHICS, self.pipeline);
-
-    const viewport = vulkan.VkViewport{
-        .x = 0.0,
-        .y = 0.0,
-        .width = @floatFromInt(swapchain.swapchain_extent.width),
-        .height = @floatFromInt(swapchain.swapchain_extent.height),
-        .minDepth = 0.0,
-        .maxDepth = 1.0,
-    };
-    vulkan.vkCmdSetViewport(command_buffer, 0, 1, &viewport);
-
-    const scissor = vulkan.VkRect2D{
-        .offset = .{ .x = 0, .y = 0 },
-        .extent = swapchain.swapchain_extent,
-    };
-    vulkan.vkCmdSetScissor(command_buffer, 0, 1, &scissor);
-
-    vulkan.vkCmdDraw(command_buffer, 3, 1, 0, 0);
-
     if (self.imgui_enabled) {
         cimgui.ImGui_ImplVulkan_RenderDrawData(cimgui.igGetDrawData(), @ptrCast(command_buffer), null);
     }
-
-    // --- End render pass.
 
     vulkan.vkCmdEndRenderPass(command_buffer);
 }

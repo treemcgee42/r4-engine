@@ -1,6 +1,6 @@
 const vulkan = @import("vulkan");
 const glfw = @import("glfw");
-const Context = @import("./Context.zig");
+const Renderer = @import("Renderer.zig");
 const VulkanSystem = @import("./vulkan//VulkanSystem.zig");
 
 surface: union {
@@ -9,9 +9,9 @@ surface: union {
 
 const Window = @This();
 
-pub fn init(context: *Context, window: *glfw.GLFWwindow) !Window {
-    const surface = switch (context.backend) {
-        .vulkan => try VulkanSystem.create_surface(context.system.vulkan.instance, window),
+pub fn init(renderer: *Renderer, window: *glfw.GLFWwindow) !Window {
+    const surface = switch (renderer.backend) {
+        .vulkan => try VulkanSystem.create_surface(renderer.system.vulkan.instance, window),
     };
 
     return .{
@@ -19,10 +19,10 @@ pub fn init(context: *Context, window: *glfw.GLFWwindow) !Window {
     };
 }
 
-pub fn deinit(self: Window, context: *Context) void {
-    switch (context.backend) {
+pub fn deinit(self: Window, renderer: *Renderer) void {
+    switch (renderer.backend) {
         .vulkan => {
-            vulkan.vkDestroySurfaceKHR(context.system.vulkan.instance, self.surface.vulkan, null);
+            vulkan.vkDestroySurfaceKHR(renderer.system.vulkan.instance, self.surface.vulkan, null);
         },
     }
 }
