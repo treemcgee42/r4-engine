@@ -1,9 +1,9 @@
 const std = @import("std");
 const vulkan = @import("vulkan");
-const Pipeline = @import("./pipeline.zig").Pipeline;
-const PipelineHandle = @import("pipeline.zig").PipelineSystem.PipelineHandle;
 const Core = @import("../Core.zig");
 const Renderer = @import("./Renderer.zig");
+const VirtualPipeline = Renderer.Pipeline;
+const VirtualPipelineHandle = Renderer.PipelineHandle;
 const Swapchain = @import("./Swapchain.zig");
 
 allocator: std.mem.Allocator,
@@ -41,79 +41,70 @@ const Command = struct {
     };
 };
 
-pub fn execute(self: *CommandBuffer, renderer: *Renderer) !void {
-    var i: usize = 0;
-    while (i < self.commands.len) : (i += 1) {
-        switch (self.commands.items(.kind)[i]) {
-            .bind_pipeline => {
-                execute_bind_pipeline(renderer, self.commands.items(.data)[i]);
-            },
-            .draw => {
-                execute_draw(renderer, self.commands.items(.data)[i]);
-            },
-            .begin_render_pass => {
-                try execute_begin_renderpass(renderer, self.commands.items(.data)[i]);
-            },
-            .end_render_pass => {
-                try execute_end_renderpass(renderer, self.commands.items(.data)[i]);
-            },
-        }
-    }
-
+pub fn reset(self: *CommandBuffer) void {
     self.commands.len = 0;
+    self.extra_data.items.len = 0;
+}
+
+pub fn execute_command(self: *CommandBuffer, command_handle: usize, renderer: *Renderer) !void {
+    const kind = self.commands.items(.kind)[command_handle];
+    const data = self.commands.items(.data)[command_handle];
+
+    switch (kind) {
+        .bind_pipeline => {
+            try execute_bind_pipeline(renderer, data);
+        },
+        .draw => {
+            execute_draw(renderer, data);
+        },
+        else => unreachable,
+    }
 }
 
 fn execute_bind_pipeline(
     renderer: *Renderer,
-    pipeline_handle: PipelineHandle,
-) void {
+    virtual_pipeline_handle: VirtualPipelineHandle,
+) !void {
     const current_frame_context = renderer.current_frame_context.?;
 
-    switch (renderer.backend) {
-        .vulkan => {
-            vulkan.vkCmdBindPipeline(
-                current_frame_context.command_buffer,
-                vulkan.VK_PIPELINE_BIND_POINT_GRAPHICS,
-                renderer.pipeline_system.pipelines.get(pipeline_handle).?.vulkan,
-            );
+    // --- Query the vulkan pipeline.
 
-            const swapchain = renderer.current_frame_context.?.window.swapchain;
-            const viewport = vulkan.VkViewport{
-                .x = 0.0,
-                .y = 0.0,
-                .width = @floatFromInt(swapchain.swapchain.vulkan.swapchain_extent.width),
-                .height = @floatFromInt(swapchain.swapchain.vulkan.swapchain_extent.height),
-                .minDepth = 0.0,
-                .maxDepth = 1.0,
-            };
-            vulkan.vkCmdSetViewport(current_frame_context.command_buffer, 0, 1, &viewport);
+    const virtual_pipeline = renderer.get_pipeline_from_handle(virtual_pipeline_handle);
+    const virtual_renderpass_handle = virtual_pipeline.render_pass;
+    const vk_renderpass_handle = renderer.render_graph.?.rp_handle_to_real_rp.get(virtual_renderpass_handle).?;
+    const vk_renderpass = renderer.system.get_renderpass_from_handle(vk_renderpass_handle).render_pass;
+    const vk_pipeline = try renderer.system.pipeline_system.query(
+        renderer,
+        virtual_pipeline,
+        vk_renderpass,
+    );
 
-            const scissor = vulkan.VkRect2D{
-                .offset = .{ .x = 0, .y = 0 },
-                .extent = swapchain.swapchain.vulkan.swapchain_extent,
-            };
-            vulkan.vkCmdSetScissor(current_frame_context.command_buffer, 0, 1, &scissor);
-        },
-    }
+    // ---
+
+    vulkan.vkCmdBindPipeline(
+        current_frame_context.command_buffer,
+        vulkan.VK_PIPELINE_BIND_POINT_GRAPHICS,
+        vk_pipeline,
+    );
+
+    const swapchain = renderer.current_frame_context.?.window.swapchain;
+    const viewport = vulkan.VkViewport{
+        .x = 0.0,
+        .y = 0.0,
+        .width = @floatFromInt(swapchain.swapchain.swapchain_extent.width), // TODO
+        .height = @floatFromInt(swapchain.swapchain.swapchain_extent.height),
+        .minDepth = 0.0,
+        .maxDepth = 1.0,
+    };
+    vulkan.vkCmdSetViewport(current_frame_context.command_buffer, 0, 1, &viewport);
+
+    const scissor = vulkan.VkRect2D{
+        .offset = .{ .x = 0, .y = 0 },
+        .extent = swapchain.swapchain.swapchain_extent,
+    };
+    vulkan.vkCmdSetScissor(current_frame_context.command_buffer, 0, 1, &scissor);
 }
 
 fn execute_draw(renderer: *Renderer, num_vertices: usize) void {
-    switch (renderer.backend) {
-        .vulkan => {
-            vulkan.vkCmdDraw(renderer.current_frame_context.?.command_buffer, @intCast(num_vertices), 1, 0, 0);
-        },
-    }
-}
-
-fn execute_begin_renderpass(renderer: *Renderer, render_pass_handle: Renderer.RenderPassHandle) !void {
-    const swapchain = &renderer.current_frame_context.?.window.swapchain;
-
-    const rp = &renderer.render_passes.items[render_pass_handle];
-    try rp.begin(renderer, swapchain);
-    renderer.current_frame_context.?.render_pass = rp;
-}
-
-fn execute_end_renderpass(renderer: *Renderer, render_pass_handle: Renderer.RenderPassHandle) !void {
-    try renderer.render_passes.items[render_pass_handle].end(renderer);
-    renderer.current_frame_context.?.render_pass = null;
+    vulkan.vkCmdDraw(renderer.current_frame_context.?.command_buffer, @intCast(num_vertices), 1, 0, 0);
 }

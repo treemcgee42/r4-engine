@@ -8,3 +8,5 @@ zig-out/
 shaders/compiled_output/*
 Session.vim
 imgui.ini
+.VSCodeCounter/
+.vscode/

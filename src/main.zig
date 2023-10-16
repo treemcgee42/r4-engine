@@ -106,7 +106,7 @@ pub fn main() !void {
     try window.run_main_loop(&core);
     defer window.deinit(&core);
 
-    core.renderer.system.vulkan.prep_for_deinit();
+    core.renderer.system.prep_for_deinit();
 
     // var app = try HelloTriangleApp.init(allocator);
     // app.setup_resize();

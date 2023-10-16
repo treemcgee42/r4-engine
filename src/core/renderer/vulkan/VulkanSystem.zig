@@ -3,8 +3,12 @@ const builtin = @import("builtin");
 const vulkan = @import("vulkan");
 const glfw = @import("glfw");
 const DebugMessenger = @import("./DebugMessenger.zig");
-
 const VulkanSystem = @This();
+const PipelineSystem = @import("./pipeline.zig").PipelineSystem;
+const RenderPass = @import("./RenderPass.zig");
+const Window = @import("../../Window.zig");
+
+allocator: std.mem.Allocator,
 
 instance: vulkan.VkInstance,
 debug_messenger: ?DebugMessenger,
@@ -20,6 +24,57 @@ command_pool: vulkan.VkCommandPool,
 command_buffers: []vulkan.VkCommandBuffer,
 
 max_usable_sample_count: vulkan.VkSampleCountFlagBits,
+
+pipeline_system: PipelineSystem,
+renderpass_system: RenderPassSystem,
+
+pub const RenderPassHandle = usize;
+const RenderPassSystem = struct {
+    renderpasses: std.ArrayList(RenderPass),
+
+    fn init(allocator_: std.mem.Allocator) RenderPassSystem {
+        return .{
+            .renderpasses = std.ArrayList(RenderPass).init(allocator_),
+        };
+    }
+
+    fn deinit(self: *RenderPassSystem, system: *VulkanSystem) void {
+        var i: usize = 0;
+        while (i < self.renderpasses.items.len) : (i += 1) {
+            self.renderpasses.items[i].deinit(system.allocator, system);
+        }
+
+        self.renderpasses.deinit();
+    }
+
+    fn create_renderpass(self: *RenderPassSystem, info: *const RenderPass.RenderPassInitInfo) !RenderPassHandle {
+        const rp = try RenderPass.init(info);
+        try self.renderpasses.append(rp);
+        return self.renderpasses.items.len - 1;
+    }
+
+    fn get_renderpass_from_handle(self: *RenderPassSystem, handle: RenderPassHandle) *RenderPass {
+        return &self.renderpasses.items[handle];
+    }
+
+    fn resize_all(self: *RenderPassSystem, system: *VulkanSystem, window: *Window) !void {
+        const new_window_size = window.size();
+        const new_render_area = .{
+            .width = new_window_size.width,
+            .height = new_window_size.height,
+        };
+
+        var i: usize = 0;
+        while (i < self.renderpasses.items.len) : (i += 1) {
+            try self.renderpasses.items[i].resize_callback(
+                system.allocator,
+                system,
+                &window.swapchain.swapchain,
+                new_render_area,
+            );
+        }
+    }
+};
 
 const enable_validation_layers = true;
 const validation_layers = [_][*c]const u8{
@@ -107,7 +162,13 @@ pub fn init(allocator_: std.mem.Allocator) VulkanError!VulkanSystem {
 
     // ---
 
+    const pipeline_system = PipelineSystem.init(allocator_);
+
+    // ---
+
     return .{
+        .allocator = allocator_,
+
         .instance = instance,
         .debug_messenger = debug_messenger,
 
@@ -122,10 +183,16 @@ pub fn init(allocator_: std.mem.Allocator) VulkanError!VulkanSystem {
         .command_buffers = command_buffers,
 
         .max_usable_sample_count = max_usable_sample_count,
+
+        .pipeline_system = pipeline_system,
+        .renderpass_system = RenderPassSystem.init(allocator_),
     };
 }
 
 pub fn deinit(self: *VulkanSystem, allocator_: std.mem.Allocator) void {
+    self.renderpass_system.deinit(self);
+    self.pipeline_system.deinit(self);
+
     self.support_details.deinit(allocator_);
 
     vulkan.vkDestroyCommandPool(self.logical_device, self.command_pool, null);
@@ -940,3 +1007,15 @@ fn create_command_buffers(
     return command_buffers;
 }
 // --- }}}1
+
+pub fn create_renderpass(self: *VulkanSystem, info: *const RenderPass.RenderPassInitInfo) !RenderPassHandle {
+    return self.renderpass_system.create_renderpass(info);
+}
+
+pub fn get_renderpass_from_handle(self: *VulkanSystem, handle: RenderPassHandle) *RenderPass {
+    return self.renderpass_system.get_renderpass_from_handle(handle);
+}
+
+pub fn handle_swapchain_resize_for_renderpasses(self: *VulkanSystem, window: *Window) !void {
+    return self.renderpass_system.resize_all(self, window);
+}
