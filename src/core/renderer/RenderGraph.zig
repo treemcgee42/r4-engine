@@ -9,6 +9,9 @@ const VulkanRenderPassHandle = Renderer.RenderPassHandle;
 const RenderGraph = @This();
 
 nodes: std.ArrayList(Node),
+root_node: usize,
+ui_node: ?usize,
+
 /// Populated during graph compilation.
 execute_steps: std.ArrayList(ExecuteStep),
 /// With respect to the vulkan renderpasses created in the graph, associate a (virtual)
@@ -17,6 +20,10 @@ execute_steps: std.ArrayList(ExecuteStep),
 ///
 /// Populated during grpah compilation.
 rp_handle_to_real_rp: std.AutoHashMap(usize, VulkanRenderPassHandle),
+
+a_semaphores: []usize,
+b_semaphores: []usize,
+semaphore_to_use: enum { a, b },
 
 pub const RenderGraphError = error{
     dependency_never_produced,
@@ -32,6 +39,8 @@ pub const Node = struct {
     command_end_idx: usize,
     /// Array of indices into `nodes`.
     parents: std.ArrayList(usize),
+    /// Array of indices into `nodes`.
+    children: std.ArrayList(usize),
 };
 
 const ExecuteStep = struct {
@@ -95,7 +104,9 @@ pub fn init(renderer: *Renderer, command_buffer: *const CommandBuffer) !RenderGr
             .render_pass = render_pass,
             .command_start_idx = command_start_idx,
             .command_end_idx = command_end_idx,
+
             .parents = std.ArrayList(usize).init(renderer.allocator),
+            .children = std.ArrayList(usize).init(renderer.allocator),
         });
 
         // --- Handle productions.
@@ -127,16 +138,92 @@ pub fn init(renderer: *Renderer, command_buffer: *const CommandBuffer) !RenderGr
     }
 
     // ---
+    // Now go through each node, look at its parents, and add it as a child of the parent.
+
+    i = 0;
+    while (i < nodes.items.len) : (i += 1) {
+        var node = &nodes.items[i];
+
+        var j: usize = 0;
+        while (j < node.parents.items.len) : (j += 1) {
+            var parent = &nodes.items[node.parents.items[j]];
+            try parent.children.append(i);
+        }
+    }
+
+    // ---
+    // The root node can be determined at this point.
+
+    var root_node: usize = 0;
+    i = 0;
+    while (i < nodes.items.len) : (i += 1) {
+        var node = &nodes.items[i];
+
+        var j: usize = 0;
+        while (j < node.children.items.len) : (j += 1) {
+            if (node.children.items[j] == root_node) {
+                root_node = j;
+                break;
+            }
+        }
+    }
+
+    // ---
+    // If Ui is enabled, that node depends on all other nodes.
+
+    var ui_node: ?usize = null;
+    if (renderer.ui != null) {
+        var leaves = std.ArrayList(usize).init(renderer.allocator);
+        i = 0;
+        while (i < nodes.items.len) : (i += 1) {
+            if (nodes.items[i].children.items.len == 0) {
+                try leaves.append(i);
+            }
+        }
+
+        var parents = std.ArrayList(usize).init(renderer.allocator);
+        try parents.appendSlice(leaves.items);
+        try nodes.append(.{
+            .render_pass = undefined,
+            .command_start_idx = 0,
+            .command_end_idx = 0,
+
+            .parents = parents,
+            .children = std.ArrayList(usize).init(renderer.allocator),
+        });
+        ui_node = nodes.items.len - 1;
+
+        i = 0;
+        while (i < leaves.items.len) : (i += 1) {
+            var node = &nodes.items[leaves.items[i]];
+            try node.children.append(ui_node.?);
+        }
+    }
+
+    // ---
+
+    const swapchain = renderer.current_frame_context.?.window.swapchain;
+
+    std.log.info("rendergraph: created {d} nodes (root {d})", .{ nodes.items.len, root_node });
 
     return .{
         .nodes = nodes,
+        .root_node = root_node,
+        .ui_node = ui_node,
 
         .execute_steps = std.ArrayList(ExecuteStep).init(renderer.allocator),
         .rp_handle_to_real_rp = std.AutoHashMap(usize, VulkanRenderPassHandle).init(renderer.allocator),
+
+        .a_semaphores = try renderer.allocator.alloc(usize, swapchain.num_images),
+        .b_semaphores = try renderer.allocator.alloc(usize, swapchain.num_images),
+        .semaphore_to_use = .a,
     };
 }
 
-pub fn deinit(self: *RenderGraph) void {
+pub fn deinit(self: *RenderGraph, renderer: *Renderer) void {
+    renderer.allocator.free(self.a_semaphores);
+    renderer.allocator.free(self.b_semaphores);
+
     self.nodes.deinit();
 
     var i: usize = 0;
@@ -151,47 +238,76 @@ pub fn deinit(self: *RenderGraph) void {
 /// This is where we actually construct the API renderpasses and synchronization
 /// mechanisms.
 pub fn compile(self: *RenderGraph, renderer: *Renderer) !void {
-    if (self.nodes.items.len == 1) {
-        const node: *const Node = &self.nodes.items[0];
-        const rp: *VirtualRenderPass = renderer.get_renderpass_from_handle(node.render_pass);
+    var i = self.root_node;
+    while (true) {
+        const node = &self.nodes.items[i];
 
-        const vkrp_init_info = .{
-            .system = &renderer.system,
-            .window = renderer.current_frame_context.?.window,
+        // ---
 
-            .imgui_enabled = rp.enable_imgui,
-            .tag = switch (rp.tag) {
-                .basic_primary => .basic_primary,
-            },
-            .render_area = .{
-                .width = rp.produces.items[0].width,
-                .height = rp.produces.items[0].height,
-            },
-        };
-        const vkrp_handle = try renderer.system.create_renderpass(&vkrp_init_info);
-        try self.rp_handle_to_real_rp.put(node.render_pass, vkrp_handle);
+        var vkrp_handle: VulkanRenderPassHandle = undefined;
+        if (self.ui_node != null and self.ui_node.? == i) {
+            vkrp_handle = renderer.ui.?.vulkan_renderpass_handle;
+        } else {
+            const rp = renderer.get_renderpass_from_handle(node.render_pass);
+            const vkrp_init_info = .{
+                .system = &renderer.system,
+                .window = renderer.current_frame_context.?.window,
+
+                .imgui_enabled = rp.enable_imgui,
+                .tag = switch (rp.tag) {
+                    .basic_primary => .basic_primary,
+                },
+                .render_area = .{
+                    .width = rp.produces.items[0].width,
+                    .height = rp.produces.items[0].height,
+                },
+            };
+            vkrp_handle = try renderer.system.create_renderpass(&vkrp_init_info);
+            try self.rp_handle_to_real_rp.put(node.render_pass, vkrp_handle);
+        }
+
+        // ---
 
         var nodes = try renderer.allocator.alloc(usize, 1);
-        nodes[0] = 0;
+        nodes[0] = i;
+
+        // ---
 
         try self.execute_steps.append(.{
             .renderpass = vkrp_handle,
             .nodes = nodes,
         });
-        return;
+
+        // ---
+
+        if (self.nodes.items[i].children.items.len == 0) {
+            break;
+        }
+
+        i = self.nodes.items[i].children.items[0];
     }
 
-    std.log.err("rendergraph has {d} nodes", .{self.nodes.items.len});
-    unreachable;
+    std.log.info("rendergraph: compiled {d} steps", .{self.execute_steps.items.len});
 }
 
 pub fn execute(self: *RenderGraph, renderer: *Renderer) !void {
+    const swapchain = renderer.current_frame_context.?.window.swapchain;
+
+    // ---
+
+    var command_buffer = renderer.current_frame_context.?.command_buffer;
+
     var i: usize = 0;
     while (i < self.execute_steps.items.len) : (i += 1) {
         const step: *ExecuteStep = &self.execute_steps.items[i];
 
-        const vkrp = renderer.system.get_renderpass_from_handle(step.renderpass);
+        // ---
 
+        try renderer.system.begin_command_buffer(command_buffer);
+
+        // ---
+
+        const vkrp = renderer.system.get_renderpass_from_handle(step.renderpass);
         vkrp.begin(renderer.current_frame_context.?.command_buffer, renderer.current_frame_context.?.image_index);
 
         var j: usize = 0;
@@ -205,5 +321,37 @@ pub fn execute(self: *RenderGraph, renderer: *Renderer) !void {
         }
 
         vkrp.end(renderer.current_frame_context.?.command_buffer);
+
+        // ---
+
+        var wait_semaphore_handle = self.a_semaphores[swapchain.swapchain.current_frame];
+        var signal_semaphore_handle = self.b_semaphores[swapchain.swapchain.current_frame];
+        var fence: ?usize = null;
+        if (self.semaphore_to_use == .b) {
+            wait_semaphore_handle = self.b_semaphores[swapchain.swapchain.current_frame];
+            signal_semaphore_handle = self.a_semaphores[swapchain.swapchain.current_frame];
+            self.semaphore_to_use = .a;
+        } else {
+            self.semaphore_to_use = .b;
+        }
+
+        if (i == 0) {
+            wait_semaphore_handle = swapchain.swapchain.current_image_available_semaphore();
+        }
+
+        if (i == self.execute_steps.items.len - 1) {
+            signal_semaphore_handle = swapchain.swapchain.current_render_finished_semaphore();
+            fence = swapchain.swapchain.current_in_flight_fence();
+        }
+
+        // ---
+
+        try renderer.system.end_command_buffer(command_buffer);
+        try renderer.system.submit_command_buffer(
+            &command_buffer,
+            wait_semaphore_handle,
+            signal_semaphore_handle,
+            fence,
+        );
     }
 }

@@ -27,6 +27,7 @@ max_usable_sample_count: vulkan.VkSampleCountFlagBits,
 
 pipeline_system: PipelineSystem,
 renderpass_system: RenderPassSystem,
+sync_system: SyncSystem,
 
 pub const RenderPassHandle = usize;
 const RenderPassSystem = struct {
@@ -75,6 +76,110 @@ const RenderPassSystem = struct {
         }
     }
 };
+
+pub const FenceHandle = usize;
+pub const SemaphoreHandle = usize;
+const SyncSystem = struct {
+    fences: std.ArrayList(vulkan.VkFence),
+    semaphores: std.ArrayList(vulkan.VkSemaphore),
+
+    fn init(allocator_: std.mem.Allocator) SyncSystem {
+        return .{
+            .fences = std.ArrayList(vulkan.VkFence).init(allocator_),
+            .semaphores = std.ArrayList(vulkan.VkSemaphore).init(allocator_),
+        };
+    }
+
+    fn deinit(self: *SyncSystem, system: *VulkanSystem) void {
+        var i: usize = 0;
+        while (i < self.fences.items.len) : (i += 1) {
+            vulkan.vkDestroyFence(system.logical_device, self.fences.items[i], null);
+        }
+        self.fences.deinit();
+
+        i = 0;
+        while (i < self.semaphores.items.len) : (i += 1) {
+            vulkan.vkDestroySemaphore(system.logical_device, self.semaphores.items[i], null);
+        }
+        self.semaphores.deinit();
+    }
+
+    fn create_fence(self: *SyncSystem, system: *VulkanSystem) !FenceHandle {
+        var fence_info = vulkan.VkFenceCreateInfo{
+            .sType = vulkan.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+            .pNext = null,
+            .flags = vulkan.VK_FENCE_CREATE_SIGNALED_BIT,
+        };
+
+        var fence: vulkan.VkFence = undefined;
+        var result = vulkan.vkCreateFence(
+            system.logical_device,
+            &fence_info,
+            null,
+            &fence,
+        );
+        if (result != vulkan.VK_SUCCESS) {
+            switch (result) {
+                vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+                vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+                else => unreachable,
+            }
+        }
+
+        try self.fences.append(fence);
+        return self.fences.items.len - 1;
+    }
+
+    fn create_semaphore(self: *SyncSystem, system: *VulkanSystem) !SemaphoreHandle {
+        var semaphore_info = vulkan.VkSemaphoreCreateInfo{
+            .sType = vulkan.VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+            .pNext = null,
+            .flags = 0,
+        };
+
+        var semaphore: vulkan.VkSemaphore = undefined;
+        var result = vulkan.vkCreateSemaphore(
+            system.logical_device,
+            &semaphore_info,
+            null,
+            &semaphore,
+        );
+        if (result != vulkan.VK_SUCCESS) {
+            switch (result) {
+                vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+                vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+                else => unreachable,
+            }
+        }
+
+        try self.semaphores.append(semaphore);
+        return self.semaphores.items.len - 1;
+    }
+
+    fn get_semaphore_from_handle(self: *SyncSystem, handle: SemaphoreHandle) *vulkan.VkSemaphore {
+        return &self.semaphores.items[handle];
+    }
+
+    fn get_fence_from_handle(self: *SyncSystem, handle: FenceHandle) *vulkan.VkFence {
+        return &self.fences.items[handle];
+    }
+};
+
+pub fn create_fence(self: *VulkanSystem) !FenceHandle {
+    return self.sync_system.create_fence(self);
+}
+
+pub fn create_semaphore(self: *VulkanSystem) !SemaphoreHandle {
+    return self.sync_system.create_semaphore(self);
+}
+
+pub fn get_semaphore_from_handle(self: *VulkanSystem, handle: SemaphoreHandle) *vulkan.VkSemaphore {
+    return self.sync_system.get_semaphore_from_handle(handle);
+}
+
+pub fn get_fence_from_handle(self: *VulkanSystem, handle: FenceHandle) *vulkan.VkFence {
+    return self.sync_system.get_fence_from_handle(handle);
+}
 
 const enable_validation_layers = true;
 const validation_layers = [_][*c]const u8{
@@ -163,6 +268,8 @@ pub fn init(allocator_: std.mem.Allocator) VulkanError!VulkanSystem {
     // ---
 
     const pipeline_system = PipelineSystem.init(allocator_);
+    const renderpass_system = RenderPassSystem.init(allocator_);
+    const sync_system = SyncSystem.init(allocator_);
 
     // ---
 
@@ -185,11 +292,13 @@ pub fn init(allocator_: std.mem.Allocator) VulkanError!VulkanSystem {
         .max_usable_sample_count = max_usable_sample_count,
 
         .pipeline_system = pipeline_system,
-        .renderpass_system = RenderPassSystem.init(allocator_),
+        .renderpass_system = renderpass_system,
+        .sync_system = sync_system,
     };
 }
 
 pub fn deinit(self: *VulkanSystem, allocator_: std.mem.Allocator) void {
+    self.sync_system.deinit(self);
     self.renderpass_system.deinit(self);
     self.pipeline_system.deinit(self);
 
@@ -1018,4 +1127,74 @@ pub fn get_renderpass_from_handle(self: *VulkanSystem, handle: RenderPassHandle)
 
 pub fn handle_swapchain_resize_for_renderpasses(self: *VulkanSystem, window: *Window) !void {
     return self.renderpass_system.resize_all(self, window);
+}
+
+// ---
+
+pub fn begin_command_buffer(self: *VulkanSystem, command_buffer: vulkan.VkCommandBuffer) !void {
+    _ = self;
+    const begin_info = vulkan.VkCommandBufferBeginInfo{
+        .sType = vulkan.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = 0,
+        .pInheritanceInfo = null,
+        .pNext = null,
+    };
+
+    var result = vulkan.vkBeginCommandBuffer(command_buffer, &begin_info);
+    if (result != vulkan.VK_SUCCESS) {
+        unreachable;
+    }
+}
+
+pub fn end_command_buffer(self: *VulkanSystem, command_buffer: vulkan.VkCommandBuffer) !void {
+    _ = self;
+    var result = vulkan.vkEndCommandBuffer(command_buffer);
+    if (result != vulkan.VK_SUCCESS) {
+        unreachable;
+    }
+}
+
+pub fn submit_command_buffer(
+    self: *VulkanSystem,
+    p_command_buffer: *vulkan.VkCommandBuffer,
+    wait_semaphore: SemaphoreHandle,
+    signal_semaphore: SemaphoreHandle,
+    fence: ?FenceHandle,
+) !void {
+    const wait_semaphores = [_]vulkan.VkSemaphore{
+        self.sync_system.get_semaphore_from_handle(wait_semaphore).*,
+    };
+    const wait_stages = [_]vulkan.VkPipelineStageFlags{
+        vulkan.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+    };
+    const signal_semaphores = [_]vulkan.VkSemaphore{
+        self.sync_system.get_semaphore_from_handle(signal_semaphore).*,
+    };
+
+    const submit_info = vulkan.VkSubmitInfo{
+        .sType = vulkan.VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .waitSemaphoreCount = wait_semaphores.len,
+        .pWaitSemaphores = wait_semaphores[0..].ptr,
+        .pWaitDstStageMask = wait_stages[0..].ptr,
+        .commandBufferCount = 1,
+        .pCommandBuffers = p_command_buffer,
+        .signalSemaphoreCount = signal_semaphores.len,
+        .pSignalSemaphores = signal_semaphores[0..].ptr,
+
+        .pNext = null,
+    };
+
+    var submit_fence: vulkan.VkFence = null;
+    if (fence != null) {
+        submit_fence = self.sync_system.get_fence_from_handle(fence.?).*;
+    }
+    var result = vulkan.vkQueueSubmit(
+        self.graphics_queue,
+        1,
+        &submit_info,
+        submit_fence,
+    );
+    if (result != vulkan.VK_SUCCESS) {
+        unreachable;
+    }
 }

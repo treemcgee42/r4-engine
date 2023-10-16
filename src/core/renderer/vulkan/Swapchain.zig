@@ -7,6 +7,8 @@ pub const query_swapchain_settings = @import("./VulkanSystem.zig").query_swapcha
 const buffer = @import("./buffer.zig");
 const RenderPass = @import("./RenderPass.zig");
 const VulkanSystem = @import("./VulkanSystem.zig");
+const SemaphoreHandle = VulkanSystem.SemaphoreHandle;
+const FenceHandle = VulkanSystem.FenceHandle;
 
 const Swapchain = @This();
 
@@ -16,9 +18,9 @@ swapchain_image_format: vulkan.VkFormat,
 swapchain_extent: vulkan.VkExtent2D,
 swapchain_image_views: []vulkan.VkImageView,
 
-image_available_semaphores: []vulkan.VkSemaphore,
-render_finished_semaphores: []vulkan.VkSemaphore,
-in_flight_fences: []vulkan.VkFence,
+image_available_semaphores: []SemaphoreHandle,
+render_finished_semaphores: []SemaphoreHandle,
+in_flight_fences: []FenceHandle,
 
 current_frame: usize = 0,
 
@@ -40,10 +42,7 @@ pub fn init(allocator: std.mem.Allocator, system: *VulkanSystem, surface: vulkan
         swapchain_info.image_format,
     );
 
-    const sync_objects = try create_sync_objects(
-        allocator,
-        system.logical_device,
-    );
+    const sync_objects = try create_sync_objects(system);
 
     return .{
         .swapchain = swapchain_info.swapchain,
@@ -59,17 +58,11 @@ pub fn init(allocator: std.mem.Allocator, system: *VulkanSystem, surface: vulkan
 }
 
 pub fn deinit(self: Swapchain, allocator: std.mem.Allocator, system: *VulkanSystem) void {
-    var i: usize = 0;
-    while (i < max_frames_in_flight) : (i += 1) {
-        vulkan.vkDestroySemaphore(system.logical_device, self.image_available_semaphores[i], null);
-        vulkan.vkDestroySemaphore(system.logical_device, self.render_finished_semaphores[i], null);
-        vulkan.vkDestroyFence(system.logical_device, self.in_flight_fences[i], null);
-    }
     allocator.free(self.image_available_semaphores);
     allocator.free(self.render_finished_semaphores);
     allocator.free(self.in_flight_fences);
 
-    i = 0;
+    var i: usize = 0;
     while (i < self.swapchain_image_views.len) : (i += 1) {
         vulkan.vkDestroyImageView(system.logical_device, self.swapchain_image_views[i], null);
     }
@@ -248,61 +241,26 @@ fn create_image_views(
 }
 
 const CreateSyncObjectsReturnType = struct {
-    image_available_semaphores: []vulkan.VkSemaphore,
-    render_finished_semaphores: []vulkan.VkSemaphore,
-    in_flight_fences: []vulkan.VkFence,
+    image_available_semaphores: []SemaphoreHandle,
+    render_finished_semaphores: []SemaphoreHandle,
+    in_flight_fences: []FenceHandle,
 };
 
-fn create_sync_objects(allocator_: std.mem.Allocator, device: vulkan.VkDevice) VulkanError!CreateSyncObjectsReturnType {
-    var image_available_semaphores = try allocator_.alloc(vulkan.VkSemaphore, max_frames_in_flight);
-    errdefer allocator_.free(image_available_semaphores);
-    var render_finished_semaphores = try allocator_.alloc(vulkan.VkSemaphore, max_frames_in_flight);
-    errdefer allocator_.free(render_finished_semaphores);
-    var in_flight_fences = try allocator_.alloc(vulkan.VkFence, max_frames_in_flight);
-    errdefer allocator_.free(in_flight_fences);
-
-    var semaphore_info = vulkan.VkSemaphoreCreateInfo{
-        .sType = vulkan.VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-        .pNext = null,
-        .flags = 0,
-    };
-
-    var fence_info = vulkan.VkFenceCreateInfo{
-        .sType = vulkan.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-        .pNext = null,
-        .flags = vulkan.VK_FENCE_CREATE_SIGNALED_BIT,
-    };
+fn create_sync_objects(system: *VulkanSystem) VulkanError!CreateSyncObjectsReturnType {
+    var image_available_semaphores = try system.allocator.alloc(SemaphoreHandle, max_frames_in_flight);
+    var render_finished_semaphores = try system.allocator.alloc(SemaphoreHandle, max_frames_in_flight);
+    var in_flight_fences = try system.allocator.alloc(FenceHandle, max_frames_in_flight);
 
     var i: usize = 0;
     while (i < max_frames_in_flight) : (i += 1) {
-        var result = vulkan.vkCreateSemaphore(device, &semaphore_info, null, &image_available_semaphores[i]);
-        if (result != vulkan.VK_SUCCESS) {
-            switch (result) {
-                vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
-                vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
-                else => unreachable,
-            }
-        }
-        errdefer vulkan.vkDestroySemaphore(device, image_available_semaphores[i], null);
+        var image_available_semaphore = try system.create_semaphore();
+        image_available_semaphores[i] = image_available_semaphore;
 
-        result = vulkan.vkCreateSemaphore(device, &semaphore_info, null, &render_finished_semaphores[i]);
-        if (result != vulkan.VK_SUCCESS) {
-            switch (result) {
-                vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
-                vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
-                else => unreachable,
-            }
-        }
-        errdefer vulkan.vkDestroySemaphore(device, render_finished_semaphores[i], null);
+        var render_finished_semaphore = try system.create_semaphore();
+        render_finished_semaphores[i] = render_finished_semaphore;
 
-        result = vulkan.vkCreateFence(device, &fence_info, null, &in_flight_fences[i]);
-        if (result != vulkan.VK_SUCCESS) {
-            switch (result) {
-                vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
-                vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
-                else => unreachable,
-            }
-        }
+        var in_flight_fence = try system.create_fence();
+        in_flight_fences[i] = in_flight_fence;
     }
 
     return .{
@@ -310,4 +268,18 @@ fn create_sync_objects(allocator_: std.mem.Allocator, device: vulkan.VkDevice) V
         .render_finished_semaphores = render_finished_semaphores,
         .in_flight_fences = in_flight_fences,
     };
+}
+
+// ---
+
+pub fn current_image_available_semaphore(self: *const Swapchain) SemaphoreHandle {
+    return self.image_available_semaphores[self.current_frame];
+}
+
+pub fn current_render_finished_semaphore(self: *const Swapchain) SemaphoreHandle {
+    return self.render_finished_semaphores[self.current_frame];
+}
+
+pub fn current_in_flight_fence(self: *const Swapchain) FenceHandle {
+    return self.in_flight_fences[self.current_frame];
 }

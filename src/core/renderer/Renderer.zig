@@ -9,6 +9,7 @@ const RenderGraph = @import("RenderGraph.zig");
 pub const RenderPassInfo = RenderPass.RenderPassInfo;
 const Swapchain = @import("Swapchain.zig");
 const Window = @import("../Window.zig");
+const Ui = @import("./Ui.zig");
 
 allocator: std.mem.Allocator,
 
@@ -19,6 +20,7 @@ render_graph: ?RenderGraph,
 command_buffer: CommandBuffer,
 
 current_frame_context: ?CurrentFrameContext,
+ui: ?Ui,
 
 pub const Backend = enum {
     vulkan,
@@ -51,12 +53,13 @@ pub fn init(allocator: std.mem.Allocator, backend: Backend) !Renderer {
         .command_buffer = command_buffer,
 
         .current_frame_context = null,
+        .ui = null,
     };
 }
 
 pub fn deinit(self: *Renderer) void {
     if (self.render_graph != null) {
-        self.render_graph.?.deinit();
+        self.render_graph.?.deinit(self);
     }
 
     var i: usize = 0;
@@ -106,12 +109,16 @@ pub fn end_frame(self: *Renderer, window: *Window) !void {
     var swapchain = &window.swapchain.swapchain;
     var system = self.system;
 
+    var image_available_semaphore = swapchain.current_image_available_semaphore();
+    var render_finished_semaphore = swapchain.current_render_finished_semaphore();
+    var fence = swapchain.current_in_flight_fence();
+
     // --- Wait for the previous frame to finish.
 
     var result = vulkan.vkWaitForFences(
         self.system.logical_device,
         1,
-        &swapchain.in_flight_fences[swapchain.current_frame],
+        system.get_fence_from_handle(fence),
         vulkan.VK_TRUE,
         std.math.maxInt(u64),
     );
@@ -126,7 +133,7 @@ pub fn end_frame(self: *Renderer, window: *Window) !void {
         system.logical_device,
         swapchain.swapchain,
         std.math.maxInt(u64),
-        swapchain.image_available_semaphores[swapchain.current_frame],
+        system.get_semaphore_from_handle(image_available_semaphore).*,
         @ptrCast(vulkan.VK_NULL_HANDLE),
         &image_index,
     );
@@ -145,7 +152,7 @@ pub fn end_frame(self: *Renderer, window: *Window) !void {
     result = vulkan.vkResetFences(
         system.logical_device,
         1,
-        &swapchain.in_flight_fences[swapchain.current_frame],
+        system.get_fence_from_handle(fence),
     );
     if (result != vulkan.VK_SUCCESS) {
         unreachable;
@@ -160,20 +167,6 @@ pub fn end_frame(self: *Renderer, window: *Window) !void {
         unreachable;
     }
 
-    // --- Begin command buffer.
-
-    const begin_info = vulkan.VkCommandBufferBeginInfo{
-        .sType = vulkan.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        .flags = 0,
-        .pInheritanceInfo = null,
-        .pNext = null,
-    };
-
-    result = vulkan.vkBeginCommandBuffer(p_command_buffer.*, &begin_info);
-    if (result != vulkan.VK_SUCCESS) {
-        unreachable;
-    }
-
     // ---
 
     self.current_frame_context = .{
@@ -182,49 +175,10 @@ pub fn end_frame(self: *Renderer, window: *Window) !void {
         .window = window,
         .render_pass = null,
     };
+
     try self.render_graph.?.execute(self);
 
     const current_frame_context = self.current_frame_context.?;
-
-    // --- End command buffer.
-
-    result = vulkan.vkEndCommandBuffer(current_frame_context.command_buffer);
-    if (result != vulkan.VK_SUCCESS) {
-        unreachable;
-    }
-
-    // --- Submit command buffer.
-
-    const wait_semaphores = [_]vulkan.VkSemaphore{swapchain.image_available_semaphores[swapchain.current_frame]};
-    const wait_stages = [_]vulkan.VkPipelineStageFlags{
-        vulkan.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-    };
-    const signal_semaphores = [_]vulkan.VkSemaphore{
-        swapchain.render_finished_semaphores[swapchain.current_frame],
-    };
-
-    const submit_info = vulkan.VkSubmitInfo{
-        .sType = vulkan.VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .waitSemaphoreCount = wait_semaphores.len,
-        .pWaitSemaphores = wait_semaphores[0..].ptr,
-        .pWaitDstStageMask = wait_stages[0..].ptr,
-        .commandBufferCount = 1,
-        .pCommandBuffers = p_command_buffer,
-        .signalSemaphoreCount = signal_semaphores.len,
-        .pSignalSemaphores = signal_semaphores[0..].ptr,
-
-        .pNext = null,
-    };
-
-    result = vulkan.vkQueueSubmit(
-        self.system.graphics_queue,
-        1,
-        &submit_info,
-        swapchain.in_flight_fences[swapchain.current_frame],
-    );
-    if (result != vulkan.VK_SUCCESS) {
-        unreachable;
-    }
 
     // --- Present.
 
@@ -232,7 +186,7 @@ pub fn end_frame(self: *Renderer, window: *Window) !void {
     const present_info = vulkan.VkPresentInfoKHR{
         .sType = vulkan.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
         .waitSemaphoreCount = 1,
-        .pWaitSemaphores = signal_semaphores[0..].ptr,
+        .pWaitSemaphores = system.get_semaphore_from_handle(render_finished_semaphore),
         .swapchainCount = swapchains.len,
         .pSwapchains = swapchains[0..].ptr,
         .pImageIndices = &current_frame_context.image_index,
