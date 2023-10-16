@@ -6,6 +6,7 @@ const DebugMessenger = @import("./DebugMessenger.zig");
 const VulkanSystem = @This();
 const PipelineSystem = @import("./pipeline.zig").PipelineSystem;
 const RenderPass = @import("./RenderPass.zig");
+pub const RenderPassInitInfo = RenderPass.RenderPassInitInfo;
 const Window = @import("../../Window.zig");
 
 allocator: std.mem.Allocator,
@@ -21,7 +22,6 @@ graphics_queue: vulkan.VkQueue,
 present_queue: vulkan.VkQueue,
 
 command_pool: vulkan.VkCommandPool,
-command_buffers: []vulkan.VkCommandBuffer,
 
 max_usable_sample_count: vulkan.VkSampleCountFlagBits,
 
@@ -259,7 +259,6 @@ pub fn init(allocator_: std.mem.Allocator) VulkanError!VulkanSystem {
     // ---
 
     const command_pool = try create_command_pool(allocator_, physical_device, logical_device, surface);
-    const command_buffers = try create_command_buffers(allocator_, logical_device, command_pool);
 
     // ---
 
@@ -272,6 +271,8 @@ pub fn init(allocator_: std.mem.Allocator) VulkanError!VulkanSystem {
     const sync_system = SyncSystem.init(allocator_);
 
     // ---
+
+    std.log.info("vulkan backend initialized", .{});
 
     return .{
         .allocator = allocator_,
@@ -287,7 +288,6 @@ pub fn init(allocator_: std.mem.Allocator) VulkanError!VulkanSystem {
         .present_queue = present_queue,
 
         .command_pool = command_pool,
-        .command_buffers = command_buffers,
 
         .max_usable_sample_count = max_usable_sample_count,
 
@@ -305,7 +305,6 @@ pub fn deinit(self: *VulkanSystem, allocator_: std.mem.Allocator) void {
     self.support_details.deinit(allocator_);
 
     vulkan.vkDestroyCommandPool(self.logical_device, self.command_pool, null);
-    allocator_.free(self.command_buffers);
 
     vulkan.vkDestroyDevice(self.logical_device, null);
 
@@ -378,10 +377,10 @@ fn create_vulkan_instance(allocator_: std.mem.Allocator) VulkanError!vulkan.VkIn
         }
     }
 
-    std.log.info("{d} available extensions:", .{available_extensions_count});
-    for (available_extensions) |extension| {
-        std.log.info("\t{s}", .{extension.extensionName});
-    }
+    // std.log.info("{d} available extensions:", .{available_extensions_count});
+    // for (available_extensions) |extension| {
+    //     std.log.info("\t{s}", .{extension.extensionName});
+    // }
 
     const required_extensions = try get_required_extensions(allocator_);
     defer required_extensions.deinit();
@@ -527,7 +526,7 @@ fn pick_physical_device(
 
     var selected_device: ?vulkan.VkPhysicalDevice = null;
 
-    std.log.info("{d} devices found:", .{device_count});
+    // std.log.info("{d} devices found:", .{device_count});
     for (devices) |device| {
         var device_properties: vulkan.VkPhysicalDeviceProperties = undefined;
         vulkan.vkGetPhysicalDeviceProperties(device, &device_properties);
@@ -542,11 +541,11 @@ fn pick_physical_device(
             }
         }
 
-        if (device_was_selected) {
-            std.log.info("\t{s} (selected)", .{device_properties.deviceName});
-        } else {
-            std.log.info("\t{s}", .{device_properties.deviceName});
-        }
+        // if (device_was_selected) {
+        //     std.log.info("\t{s} (selected)", .{device_properties.deviceName});
+        // } else {
+        //     std.log.info("\t{s}", .{device_properties.deviceName});
+        // }
     }
 
     if (selected_device == null) {
@@ -1087,34 +1086,6 @@ fn create_command_pool(
     return command_pool;
 }
 
-fn create_command_buffers(
-    allocator_: std.mem.Allocator,
-    logical_device: vulkan.VkDevice,
-    command_pool: vulkan.VkCommandPool,
-) VulkanError![]vulkan.VkCommandBuffer {
-    const command_buffers = try allocator_.alloc(vulkan.VkCommandBuffer, max_frames_in_flight);
-    errdefer allocator_.free(command_buffers);
-
-    const alloc_info = vulkan.VkCommandBufferAllocateInfo{
-        .sType = vulkan.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-        .commandPool = command_pool,
-        .level = vulkan.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        .commandBufferCount = @intCast(command_buffers.len),
-
-        .pNext = null,
-    };
-
-    const result = vulkan.vkAllocateCommandBuffers(logical_device, &alloc_info, command_buffers.ptr);
-    if (result != vulkan.VK_SUCCESS) {
-        switch (result) {
-            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
-            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
-            else => unreachable,
-        }
-    }
-
-    return command_buffers;
-}
 // --- }}}1
 
 pub fn create_renderpass(self: *VulkanSystem, info: *const RenderPass.RenderPassInitInfo) !RenderPassHandle {

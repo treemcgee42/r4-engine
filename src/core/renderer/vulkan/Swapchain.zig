@@ -19,8 +19,13 @@ swapchain_extent: vulkan.VkExtent2D,
 swapchain_image_views: []vulkan.VkImageView,
 
 image_available_semaphores: []SemaphoreHandle,
+a_semaphores: []SemaphoreHandle,
+b_semaphores: []SemaphoreHandle,
 render_finished_semaphores: []SemaphoreHandle,
 in_flight_fences: []FenceHandle,
+
+a_command_buffers: []vulkan.VkCommandBuffer,
+b_command_buffers: []vulkan.VkCommandBuffer,
 
 current_frame: usize = 0,
 
@@ -42,7 +47,21 @@ pub fn init(allocator: std.mem.Allocator, system: *VulkanSystem, surface: vulkan
         swapchain_info.image_format,
     );
 
-    const sync_objects = try create_sync_objects(system);
+    // --- Sync objects.
+
+    const image_available_semaphores = try create_semaphores(system);
+    const a_semaphores = try create_semaphores(system);
+    const b_semaphores = try create_semaphores(system);
+    const render_finished_semaphores = try create_semaphores(system);
+
+    const in_flight_fences = try create_fences(system);
+
+    // --- Command buffers.
+
+    const a_command_buffers = try create_command_buffers(system);
+    const b_command_buffers = try create_command_buffers(system);
+
+    // ---
 
     return .{
         .swapchain = swapchain_info.swapchain,
@@ -51,16 +70,27 @@ pub fn init(allocator: std.mem.Allocator, system: *VulkanSystem, surface: vulkan
         .swapchain_extent = swapchain_info.extent,
         .swapchain_image_views = swapchain_image_views,
 
-        .image_available_semaphores = sync_objects.image_available_semaphores,
-        .render_finished_semaphores = sync_objects.render_finished_semaphores,
-        .in_flight_fences = sync_objects.in_flight_fences,
+        .image_available_semaphores = image_available_semaphores,
+        .a_semaphores = a_semaphores,
+        .b_semaphores = b_semaphores,
+        .render_finished_semaphores = render_finished_semaphores,
+        .in_flight_fences = in_flight_fences,
+
+        .a_command_buffers = a_command_buffers,
+        .b_command_buffers = b_command_buffers,
     };
 }
 
 pub fn deinit(self: Swapchain, allocator: std.mem.Allocator, system: *VulkanSystem) void {
     allocator.free(self.image_available_semaphores);
+    allocator.free(self.a_semaphores);
+    allocator.free(self.b_semaphores);
     allocator.free(self.render_finished_semaphores);
+
     allocator.free(self.in_flight_fences);
+
+    allocator.free(self.a_command_buffers);
+    allocator.free(self.b_command_buffers);
 
     var i: usize = 0;
     while (i < self.swapchain_image_views.len) : (i += 1) {
@@ -240,34 +270,53 @@ fn create_image_views(
     return image_views;
 }
 
-const CreateSyncObjectsReturnType = struct {
-    image_available_semaphores: []SemaphoreHandle,
-    render_finished_semaphores: []SemaphoreHandle,
-    in_flight_fences: []FenceHandle,
-};
-
-fn create_sync_objects(system: *VulkanSystem) VulkanError!CreateSyncObjectsReturnType {
-    var image_available_semaphores = try system.allocator.alloc(SemaphoreHandle, max_frames_in_flight);
-    var render_finished_semaphores = try system.allocator.alloc(SemaphoreHandle, max_frames_in_flight);
-    var in_flight_fences = try system.allocator.alloc(FenceHandle, max_frames_in_flight);
+fn create_semaphores(system: *VulkanSystem) ![]SemaphoreHandle {
+    var semaphore_handles = try system.allocator.alloc(SemaphoreHandle, max_frames_in_flight);
 
     var i: usize = 0;
     while (i < max_frames_in_flight) : (i += 1) {
-        var image_available_semaphore = try system.create_semaphore();
-        image_available_semaphores[i] = image_available_semaphore;
-
-        var render_finished_semaphore = try system.create_semaphore();
-        render_finished_semaphores[i] = render_finished_semaphore;
-
-        var in_flight_fence = try system.create_fence();
-        in_flight_fences[i] = in_flight_fence;
+        var semaphore = try system.create_semaphore();
+        semaphore_handles[i] = semaphore;
     }
 
-    return .{
-        .image_available_semaphores = image_available_semaphores,
-        .render_finished_semaphores = render_finished_semaphores,
-        .in_flight_fences = in_flight_fences,
+    return semaphore_handles;
+}
+
+fn create_fences(system: *VulkanSystem) ![]FenceHandle {
+    var fence_handles = try system.allocator.alloc(FenceHandle, max_frames_in_flight);
+
+    var i: usize = 0;
+    while (i < max_frames_in_flight) : (i += 1) {
+        var fence = try system.create_fence();
+        fence_handles[i] = fence;
+    }
+
+    return fence_handles;
+}
+
+fn create_command_buffers(system: *VulkanSystem) VulkanError![]vulkan.VkCommandBuffer {
+    const command_buffers = try system.allocator.alloc(vulkan.VkCommandBuffer, max_frames_in_flight);
+    errdefer system.allocator.free(command_buffers);
+
+    const alloc_info = vulkan.VkCommandBufferAllocateInfo{
+        .sType = vulkan.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool = system.command_pool,
+        .level = vulkan.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = @intCast(command_buffers.len),
+
+        .pNext = null,
     };
+
+    const result = vulkan.vkAllocateCommandBuffers(system.logical_device, &alloc_info, command_buffers.ptr);
+    if (result != vulkan.VK_SUCCESS) {
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+            else => unreachable,
+        }
+    }
+
+    return command_buffers;
 }
 
 // ---

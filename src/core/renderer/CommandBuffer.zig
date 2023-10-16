@@ -46,26 +46,24 @@ pub fn reset(self: *CommandBuffer) void {
     self.extra_data.items.len = 0;
 }
 
-pub fn execute_command(self: *CommandBuffer, command_handle: usize, renderer: *Renderer) !void {
+pub fn execute_command(self: *CommandBuffer, command_handle: usize, renderer: *Renderer, command_buffer: vulkan.VkCommandBuffer) !void {
     const kind = self.commands.items(.kind)[command_handle];
     const data = self.commands.items(.data)[command_handle];
 
     switch (kind) {
         .bind_pipeline => {
-            try execute_bind_pipeline(renderer, data);
+            try execute_bind_pipeline(renderer, data, command_buffer);
         },
         .draw => {
-            execute_draw(renderer, data);
+            execute_draw(renderer, data, command_buffer);
         },
         else => unreachable,
     }
 }
 
-fn execute_bind_pipeline(
-    renderer: *Renderer,
-    virtual_pipeline_handle: VirtualPipelineHandle,
-) !void {
+fn execute_bind_pipeline(renderer: *Renderer, virtual_pipeline_handle: VirtualPipelineHandle, command_buffer: vulkan.VkCommandBuffer) !void {
     const current_frame_context = renderer.current_frame_context.?;
+    _ = current_frame_context;
 
     // --- Query the vulkan pipeline.
 
@@ -82,7 +80,7 @@ fn execute_bind_pipeline(
     // ---
 
     vulkan.vkCmdBindPipeline(
-        current_frame_context.command_buffer,
+        command_buffer,
         vulkan.VK_PIPELINE_BIND_POINT_GRAPHICS,
         vk_pipeline,
     );
@@ -96,15 +94,16 @@ fn execute_bind_pipeline(
         .minDepth = 0.0,
         .maxDepth = 1.0,
     };
-    vulkan.vkCmdSetViewport(current_frame_context.command_buffer, 0, 1, &viewport);
+    vulkan.vkCmdSetViewport(command_buffer, 0, 1, &viewport);
 
     const scissor = vulkan.VkRect2D{
         .offset = .{ .x = 0, .y = 0 },
         .extent = swapchain.swapchain.swapchain_extent,
     };
-    vulkan.vkCmdSetScissor(current_frame_context.command_buffer, 0, 1, &scissor);
+    vulkan.vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 }
 
-fn execute_draw(renderer: *Renderer, num_vertices: usize) void {
-    vulkan.vkCmdDraw(renderer.current_frame_context.?.command_buffer, @intCast(num_vertices), 1, 0, 0);
+fn execute_draw(renderer: *Renderer, num_vertices: usize, command_buffer: vulkan.VkCommandBuffer) void {
+    _ = renderer;
+    vulkan.vkCmdDraw(command_buffer, @intCast(num_vertices), 1, 0, 0);
 }

@@ -27,10 +27,21 @@ pub const Backend = enum {
 };
 
 pub const CurrentFrameContext = struct {
-    render_pass: ?*RenderPass,
-    command_buffer: vulkan.VkCommandBuffer,
     image_index: u32,
+
+    command_buffer_a: vulkan.VkCommandBuffer,
+    command_buffer_b: vulkan.VkCommandBuffer,
+
+    image_available_semaphore: VulkanSystem.SemaphoreHandle,
+    a_semaphore: VulkanSystem.SemaphoreHandle,
+    b_semaphore: VulkanSystem.SemaphoreHandle,
+    render_finished_semaphore: VulkanSystem.SemaphoreHandle,
+
+    fence: VulkanSystem.FenceHandle,
+
     window: *Window,
+
+    render_pass: ?*RenderPass,
 };
 
 const Renderer = @This();
@@ -93,10 +104,21 @@ pub fn begin_frame(self: *Renderer, window: *Window) !void {
     self.command_buffer.reset();
 
     self.current_frame_context = .{
-        .command_buffer = undefined,
         .image_index = undefined,
+
+        .command_buffer_a = undefined,
+        .command_buffer_b = undefined,
+
+        .image_available_semaphore = undefined,
+        .a_semaphore = undefined,
+        .b_semaphore = undefined,
+        .render_finished_semaphore = undefined,
+
+        .fence = undefined,
+
         .window = window,
-        .render_pass = null,
+
+        .render_pass = undefined,
     };
 }
 
@@ -160,9 +182,14 @@ pub fn end_frame(self: *Renderer, window: *Window) !void {
 
     // ---
 
-    var p_command_buffer = &system.command_buffers[swapchain.current_frame];
+    var command_buffer_a = swapchain.a_command_buffers[swapchain.current_frame];
+    var command_buffer_b = swapchain.b_command_buffers[swapchain.current_frame];
 
-    result = vulkan.vkResetCommandBuffer(p_command_buffer.*, 0);
+    result = vulkan.vkResetCommandBuffer(command_buffer_a, 0);
+    if (result != vulkan.VK_SUCCESS) {
+        unreachable;
+    }
+    result = vulkan.vkResetCommandBuffer(command_buffer_b, 0);
     if (result != vulkan.VK_SUCCESS) {
         unreachable;
     }
@@ -170,9 +197,20 @@ pub fn end_frame(self: *Renderer, window: *Window) !void {
     // ---
 
     self.current_frame_context = .{
-        .command_buffer = p_command_buffer.*,
         .image_index = image_index,
+
+        .command_buffer_a = command_buffer_a,
+        .command_buffer_b = command_buffer_b,
+
+        .image_available_semaphore = image_available_semaphore,
+        .a_semaphore = swapchain.a_semaphores[swapchain.current_frame],
+        .b_semaphore = swapchain.b_semaphores[swapchain.current_frame],
+        .render_finished_semaphore = render_finished_semaphore,
+
+        .fence = fence,
+
         .window = window,
+
         .render_pass = null,
     };
 
@@ -279,3 +317,7 @@ pub const Resource = struct {
     width: u32,
     height: u32,
 };
+
+pub fn enable_ui(self: *Renderer, window: *Window) !void {
+    self.ui = try Ui.init(self, window);
+}

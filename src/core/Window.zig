@@ -83,6 +83,7 @@ pub fn init(core: *Core, info: *const WindowInitInfo) WindowInitError!Window {
 }
 
 pub fn run_main_loop(self: *Window, core: *Core) !void {
+    try core.renderer.enable_ui(self);
     var render_pass_info = Renderer.RenderPassInfo{
         .enable_imgui = false,
         .renderer = &core.renderer,
@@ -99,37 +100,33 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
         .render_pass = render_pass,
     });
 
-    // var viewport_open = true;
-    // var viewport_size: cimgui.ImVec2 = undefined;
-    // var viewport_size_string_buffer: [256]u8 = undefined;
-    // var viewport_size_string: []u8 = undefined;
+    var viewport_open = true;
+    var viewport_size: cimgui.ImVec2 = undefined;
+    var viewport_size_string_buffer: [256]u8 = undefined;
+    var viewport_size_string: []u8 = undefined;
 
     while (glfw.glfwWindowShouldClose(self.window) == 0) {
         glfw.glfwPollEvents();
 
         // ---
 
-        // core.renderer.begin_imgui();
+        core.renderer.begin_imgui();
 
-        // std.debug.print("here5\n", .{});
+        cimgui.igShowDemoWindow(&self.show_imgui_demo_window);
 
-        // cimgui.igShowDemoWindow(&self.show_imgui_demo_window);
+        {
+            _ = cimgui.igBegin("Viewport", &viewport_open, 0);
+            cimgui.igGetWindowSize(&viewport_size);
+            viewport_size_string = std.fmt.bufPrint(&viewport_size_string_buffer, "{d}x{d}", .{ viewport_size.x, viewport_size.y }) catch unreachable;
+            viewport_size_string_buffer[viewport_size_string.len] = 0;
 
-        // {
-        //     _ = cimgui.igBegin("Viewport", &viewport_open, 0);
-        //     cimgui.igGetWindowSize(&viewport_size);
-        //     viewport_size_string = std.fmt.bufPrint(&viewport_size_string_buffer, "{d}x{d}", .{ viewport_size.x, viewport_size.y }) catch unreachable;
-        //     viewport_size_string_buffer[viewport_size_string.len] = 0;
+            cimgui.igText("The viewport scene will be here. Dimensions: ");
+            cimgui.igText(@ptrCast(viewport_size_string));
 
-        //     cimgui.igText("The viewport scene will be here. Dimensions: ");
-        //     cimgui.igText(@ptrCast(viewport_size_string));
+            cimgui.igEnd();
+        }
 
-        //     cimgui.igEnd();
-        // }
-
-        // core.renderer.end_imgui();
-
-        // std.debug.print("here4\n", .{});
+        core.renderer.end_imgui();
 
         // ---
 

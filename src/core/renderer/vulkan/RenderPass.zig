@@ -46,7 +46,11 @@ pub fn init(info: *const RenderPassInitInfo) VulkanError!RenderPass {
     var render_pass: vulkan.VkRenderPass = undefined;
     switch (info.tag) {
         .basic_primary => {
-            render_pass = try build_basic_primary_renderpass(system, swapchain);
+            var clear = true;
+            if (info.imgui_enabled) {
+                clear = false;
+            }
+            render_pass = try build_basic_primary_renderpass(system, swapchain, clear);
         },
     }
 
@@ -77,6 +81,7 @@ pub fn init(info: *const RenderPassInitInfo) VulkanError!RenderPass {
 
     if (info.imgui_enabled) {
         try to_return.setup_imgui(system, info.window);
+        std.log.info("imgui initialized", .{});
     }
 
     return to_return;
@@ -178,7 +183,7 @@ pub fn setup_imgui(self: *RenderPass, system: *VulkanSystem, window: *Window) Vu
 
     // --- Initialize imgui library.
 
-    // _ = cimgui.igCreateContext(null);
+    _ = cimgui.igCreateContext(null);
     _ = cimgui.ImGui_ImplGlfw_InitForVulkan(@ptrCast(window.window), true);
 
     var vulkan_init_info = cimgui.ImGui_ImplVulkan_InitInfo{
@@ -196,7 +201,7 @@ pub fn setup_imgui(self: *RenderPass, system: *VulkanSystem, window: *Window) Vu
     // --- Load fonts.
 
     var command_pool = system.command_pool;
-    var command_buffer = system.command_buffers[0];
+    var command_buffer = window.swapchain.swapchain.a_command_buffers[0];
 
     result = vulkan.vkResetCommandPool(system.logical_device, command_pool, 0);
     if (result != vulkan.VK_SUCCESS) {
@@ -251,14 +256,16 @@ pub fn setup_imgui(self: *RenderPass, system: *VulkanSystem, window: *Window) Vu
     // //clear font textures from cpu data
     // ImGui_ImplVulkan_DestroyFontUploadObjects();
     //
-
-    std.log.info("imgui initialized", .{});
 }
 
-pub fn begin(self: *RenderPass, command_buffer: vulkan.VkCommandBuffer, image_index: u32) void {
-    // --- Begin render pass.
-
-    const clear_values = [_]vulkan.VkClearValue{
+pub fn begin(
+    self: *RenderPass,
+    command_buffer: vulkan.VkCommandBuffer,
+    image_index: u32,
+    clear: bool,
+) void {
+    var clearValueCount: u32 = 0;
+    var clear_values = [_]vulkan.VkClearValue{
         .{
             .color = .{
                 .float32 = [_]f32{ 0.0, 0.0, 0.0, 1.0 },
@@ -271,6 +278,10 @@ pub fn begin(self: *RenderPass, command_buffer: vulkan.VkCommandBuffer, image_in
             },
         },
     };
+    var pClearValues: ?*vulkan.VkClearValue = @ptrCast(clear_values[0..].ptr);
+    if (clear) {
+        clearValueCount = clear_values.len;
+    }
 
     var framebuffer = self.framebuffers[0];
     if (self.framebuffers.len > 1) {
@@ -285,8 +296,8 @@ pub fn begin(self: *RenderPass, command_buffer: vulkan.VkCommandBuffer, image_in
             .offset = .{ .x = 0, .y = 0 },
             .extent = .{ .width = self.render_area.width, .height = self.render_area.height },
         },
-        .clearValueCount = clear_values.len,
-        .pClearValues = clear_values[0..].ptr,
+        .clearValueCount = clearValueCount,
+        .pClearValues = pClearValues,
 
         .pNext = null,
     };
@@ -326,17 +337,30 @@ const AttachmentAndRef = struct {
     ref: vulkan.VkAttachmentReference,
 };
 
-fn build_color_attachment(swapchain: *Swapchain) VulkanError!AttachmentAndRef {
+fn build_color_attachment(swapchain: *Swapchain, clear: bool) VulkanError!AttachmentAndRef {
+    var loadOp = vulkan.VK_ATTACHMENT_LOAD_OP_CLEAR;
+    if (!clear) {
+        loadOp = vulkan.VK_ATTACHMENT_LOAD_OP_LOAD;
+    }
+    var initialLayout = vulkan.VK_IMAGE_LAYOUT_UNDEFINED;
+    if (!clear) {
+        initialLayout = vulkan.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    }
+    var finalLayout = vulkan.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    if (!clear) {
+        finalLayout = vulkan.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    }
+
     const color_attachment = vulkan.VkAttachmentDescription{
         .format = swapchain.swapchain_image_format,
         // The top-level render pass doesn't need multisampling.
         .samples = 1,
-        .loadOp = vulkan.VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .loadOp = @intCast(loadOp),
         .storeOp = vulkan.VK_ATTACHMENT_STORE_OP_STORE,
         .stencilLoadOp = vulkan.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
         .stencilStoreOp = vulkan.VK_ATTACHMENT_STORE_OP_DONT_CARE,
-        .initialLayout = vulkan.VK_IMAGE_LAYOUT_UNDEFINED,
-        .finalLayout = vulkan.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        .initialLayout = @intCast(initialLayout),
+        .finalLayout = @intCast(finalLayout),
     };
 
     const color_attachment_ref = vulkan.VkAttachmentReference{
@@ -350,11 +374,11 @@ fn build_color_attachment(swapchain: *Swapchain) VulkanError!AttachmentAndRef {
     };
 }
 
-fn build_basic_primary_renderpass(system: *VulkanSystem, swapchain: *Swapchain) VulkanError!vulkan.VkRenderPass {
+fn build_basic_primary_renderpass(system: *VulkanSystem, swapchain: *Swapchain, clear: bool) VulkanError!vulkan.VkRenderPass {
     // --- Attachments.
 
     const color_attachment_count = 1;
-    var color_attachment = try build_color_attachment(swapchain);
+    var color_attachment = try build_color_attachment(swapchain, clear);
     var pColorAttachments: [*c]vulkan.VkAttachmentReference = &color_attachment.ref;
 
     // --- Subpass.

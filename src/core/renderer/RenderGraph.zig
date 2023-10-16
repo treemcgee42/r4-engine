@@ -21,8 +21,6 @@ execute_steps: std.ArrayList(ExecuteStep),
 /// Populated during grpah compilation.
 rp_handle_to_real_rp: std.AutoHashMap(usize, VulkanRenderPassHandle),
 
-a_semaphores: []usize,
-b_semaphores: []usize,
 semaphore_to_use: enum { a, b },
 
 pub const RenderGraphError = error{
@@ -41,6 +39,11 @@ pub const Node = struct {
     parents: std.ArrayList(usize),
     /// Array of indices into `nodes`.
     children: std.ArrayList(usize),
+
+    fn deinit(self: *Node) void {
+        self.parents.deinit();
+        self.children.deinit();
+    }
 };
 
 const ExecuteStep = struct {
@@ -198,11 +201,10 @@ pub fn init(renderer: *Renderer, command_buffer: *const CommandBuffer) !RenderGr
             var node = &nodes.items[leaves.items[i]];
             try node.children.append(ui_node.?);
         }
+        leaves.deinit();
     }
 
     // ---
-
-    const swapchain = renderer.current_frame_context.?.window.swapchain;
 
     std.log.info("rendergraph: created {d} nodes (root {d})", .{ nodes.items.len, root_node });
 
@@ -214,19 +216,20 @@ pub fn init(renderer: *Renderer, command_buffer: *const CommandBuffer) !RenderGr
         .execute_steps = std.ArrayList(ExecuteStep).init(renderer.allocator),
         .rp_handle_to_real_rp = std.AutoHashMap(usize, VulkanRenderPassHandle).init(renderer.allocator),
 
-        .a_semaphores = try renderer.allocator.alloc(usize, swapchain.num_images),
-        .b_semaphores = try renderer.allocator.alloc(usize, swapchain.num_images),
         .semaphore_to_use = .a,
     };
 }
 
 pub fn deinit(self: *RenderGraph, renderer: *Renderer) void {
-    renderer.allocator.free(self.a_semaphores);
-    renderer.allocator.free(self.b_semaphores);
-
-    self.nodes.deinit();
+    _ = renderer;
 
     var i: usize = 0;
+    while (i < self.nodes.items.len) : (i += 1) {
+        self.nodes.items[i].deinit();
+    }
+    self.nodes.deinit();
+
+    i = 0;
     while (i < self.execute_steps.items.len) : (i += 1) {
         self.execute_steps.items[i].deinit(self.rp_handle_to_real_rp.allocator);
     }
@@ -292,10 +295,9 @@ pub fn compile(self: *RenderGraph, renderer: *Renderer) !void {
 
 pub fn execute(self: *RenderGraph, renderer: *Renderer) !void {
     const swapchain = renderer.current_frame_context.?.window.swapchain;
+    _ = swapchain;
 
     // ---
-
-    var command_buffer = renderer.current_frame_context.?.command_buffer;
 
     var i: usize = 0;
     while (i < self.execute_steps.items.len) : (i += 1) {
@@ -303,12 +305,21 @@ pub fn execute(self: *RenderGraph, renderer: *Renderer) !void {
 
         // ---
 
+        var command_buffer = renderer.current_frame_context.?.command_buffer_a;
+        if (self.semaphore_to_use == .b) {
+            command_buffer = renderer.current_frame_context.?.command_buffer_b;
+        }
+
         try renderer.system.begin_command_buffer(command_buffer);
 
         // ---
 
         const vkrp = renderer.system.get_renderpass_from_handle(step.renderpass);
-        vkrp.begin(renderer.current_frame_context.?.command_buffer, renderer.current_frame_context.?.image_index);
+        var clear = false;
+        if (i == 0) {
+            clear = true;
+        }
+        vkrp.begin(command_buffer, renderer.current_frame_context.?.image_index, clear);
 
         var j: usize = 0;
         while (j < step.nodes.len) : (j += 1) {
@@ -316,32 +327,32 @@ pub fn execute(self: *RenderGraph, renderer: *Renderer) !void {
 
             var k: usize = node.command_start_idx;
             while (k < node.command_end_idx) : (k += 1) {
-                try renderer.command_buffer.execute_command(k, renderer);
+                try renderer.command_buffer.execute_command(k, renderer, command_buffer);
             }
         }
 
-        vkrp.end(renderer.current_frame_context.?.command_buffer);
+        vkrp.end(command_buffer);
 
         // ---
 
-        var wait_semaphore_handle = self.a_semaphores[swapchain.swapchain.current_frame];
-        var signal_semaphore_handle = self.b_semaphores[swapchain.swapchain.current_frame];
+        var wait_semaphore_handle = renderer.current_frame_context.?.a_semaphore;
+        var signal_semaphore_handle = renderer.current_frame_context.?.b_semaphore;
         var fence: ?usize = null;
         if (self.semaphore_to_use == .b) {
-            wait_semaphore_handle = self.b_semaphores[swapchain.swapchain.current_frame];
-            signal_semaphore_handle = self.a_semaphores[swapchain.swapchain.current_frame];
+            wait_semaphore_handle = renderer.current_frame_context.?.b_semaphore;
+            signal_semaphore_handle = renderer.current_frame_context.?.a_semaphore;
             self.semaphore_to_use = .a;
         } else {
             self.semaphore_to_use = .b;
         }
 
         if (i == 0) {
-            wait_semaphore_handle = swapchain.swapchain.current_image_available_semaphore();
+            wait_semaphore_handle = renderer.current_frame_context.?.image_available_semaphore;
         }
 
         if (i == self.execute_steps.items.len - 1) {
-            signal_semaphore_handle = swapchain.swapchain.current_render_finished_semaphore();
-            fence = swapchain.swapchain.current_in_flight_fence();
+            signal_semaphore_handle = renderer.current_frame_context.?.render_finished_semaphore;
+            fence = renderer.current_frame_context.?.fence;
         }
 
         // ---
