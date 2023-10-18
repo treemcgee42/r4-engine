@@ -25,7 +25,7 @@ present_queue: vulkan.VkQueue,
 
 command_pool: vulkan.VkCommandPool,
 
-max_usable_sample_count: vulkan.VkSampleCountFlagBits,
+max_usable_sample_count: l0vk.VkSampleCountFlagBits,
 
 pipeline_system: PipelineSystem,
 renderpass_system: RenderPassSystem,
@@ -326,10 +326,7 @@ pub fn prep_for_deinit(self: *VulkanSystem) void {
 
 // --- Instance {{{1
 
-fn create_vulkan_instance(allocator_: std.mem.Allocator) !vulkan.VkInstance {
-    var result: vulkan.VkResult = undefined;
-    _ = result;
-
+fn create_vulkan_instance(allocator_: std.mem.Allocator) !l0vk.VkInstance {
     if (enable_validation_layers) {
         const found = try check_validation_layer_support(allocator_);
         if (!found) return VulkanError.validation_layer_not_present;
@@ -436,7 +433,7 @@ fn check_validation_layer_support(allocator_: std.mem.Allocator) !bool {
 
 // --- }}}1
 
-pub fn create_surface(instance: vulkan.VkInstance, window: *glfw.GLFWwindow) VulkanError!vulkan.VkSurfaceKHR {
+pub fn create_surface(instance: l0vk.VkInstance, window: *glfw.GLFWwindow) VulkanError!l0vk.VkSurfaceKHR {
     var surface: vulkan.VkSurfaceKHR = null;
 
     const result = glfw.glfwCreateWindowSurface(@ptrCast(instance), window, null, @ptrCast(&surface));
@@ -450,10 +447,10 @@ pub fn create_surface(instance: vulkan.VkInstance, window: *glfw.GLFWwindow) Vul
 // --- Physical Device {{{1
 
 fn pick_physical_device(
-    instance: vulkan.VkInstance,
+    instance: l0vk.VkInstance,
     allocator_: std.mem.Allocator,
-    surface: vulkan.VkSurfaceKHR,
-) !vulkan.VkPhysicalDevice {
+    surface: l0vk.VkSurfaceKHR,
+) !l0vk.VkPhysicalDevice {
     var devices = try l0vk.vkEnumeratePhysicalDevices(allocator_, instance);
     defer allocator_.free(devices);
 
@@ -495,7 +492,7 @@ fn pick_physical_device(
 fn is_device_suitable(
     device: l0vk.VkPhysicalDevice,
     allocator_: std.mem.Allocator,
-    surface: vulkan.VkSurfaceKHR,
+    surface: l0vk.VkSurfaceKHR,
 ) !bool {
     const indices = try find_queue_families(device, allocator_, surface);
 
@@ -508,10 +505,9 @@ fn is_device_suitable(
         swapchain_supported = swapchain_support.formats.len > 0 and swapchain_support.present_modes.len > 0;
     }
 
-    var supported_features: vulkan.VkPhysicalDeviceFeatures = undefined;
-    vulkan.vkGetPhysicalDeviceFeatures(device, &supported_features);
+    const supported_features = l0vk.vkGetPhysicalDeviceFeatures(device);
 
-    return indices.is_complete() and extensions_supported and swapchain_supported and (supported_features.samplerAnisotropy == vulkan.VK_TRUE);
+    return indices.is_complete() and extensions_supported and swapchain_supported and supported_features.samplerAnisotropy;
 }
 
 const QueueFamilyIndices = struct {
@@ -533,7 +529,7 @@ const QueueFamilyIndices = struct {
 pub fn find_queue_families(
     physical_device: l0vk.VkPhysicalDevice,
     allocator_: std.mem.Allocator,
-    surface: vulkan.VkSurfaceKHR,
+    surface: l0vk.VkSurfaceKHR,
 ) !QueueFamilyIndices {
     var indices = QueueFamilyIndices.init_null();
 
@@ -563,24 +559,9 @@ pub fn find_queue_families(
     return indices;
 }
 
-fn check_device_extension_support(device: vulkan.VkPhysicalDevice, allocator_: std.mem.Allocator) VulkanError!bool {
-    var extension_count: u32 = 0;
-    var result = vulkan.vkEnumerateDeviceExtensionProperties(device, null, &extension_count, null);
-    if (result != vulkan.VK_SUCCESS) {
-        unreachable;
-    }
-
-    var available_extensions = try allocator_.alloc(vulkan.VkExtensionProperties, extension_count);
+fn check_device_extension_support(device: l0vk.VkPhysicalDevice, allocator_: std.mem.Allocator) !bool {
+    const available_extensions = try l0vk.vkEnumerateDeviceExtensionProperties(allocator_, device, null);
     defer allocator_.free(available_extensions);
-    result = vulkan.vkEnumerateDeviceExtensionProperties(device, null, &extension_count, available_extensions.ptr);
-    if (result != vulkan.VK_SUCCESS) {
-        switch (result) {
-            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
-            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
-            vulkan.VK_ERROR_INITIALIZATION_FAILED => return VulkanError.vk_error_initialization_failed,
-            else => unreachable,
-        }
-    }
 
     var found_exensions: usize = 0;
     for (device_extensions) |extension| {
@@ -589,7 +570,7 @@ fn check_device_extension_support(device: vulkan.VkPhysicalDevice, allocator_: s
             // Manual strcmp.
             var i: usize = 0;
             while (true) : (i += 1) {
-                if (available_extension.extensionName[i] == 0 or i >= vulkan.VK_MAX_EXTENSION_NAME_SIZE) {
+                if (available_extension.extensionName[i] == 0 or i >= l0vk.VK_MAX_EXTENSION_NAME_SIZE) {
                     found = true;
                 }
 
@@ -607,33 +588,30 @@ fn check_device_extension_support(device: vulkan.VkPhysicalDevice, allocator_: s
     return found_exensions == device_extensions.len;
 }
 
-fn get_max_usable_sample_count(physical_device: vulkan.VkPhysicalDevice) VulkanError!vulkan.VkSampleCountFlagBits {
-    var physical_device_properties: vulkan.VkPhysicalDeviceProperties = undefined;
-    vulkan.vkGetPhysicalDeviceProperties(physical_device, &physical_device_properties);
+fn get_max_usable_sample_count(physical_device: l0vk.VkPhysicalDevice) VulkanError!l0vk.VkSampleCountFlagBits {
+    const physical_device_properties = l0vk.vkGetPhysicalDeviceProperties(physical_device);
+    const counts: l0vk.VkSampleCountFlags = @bitCast(@as(u32, @bitCast(physical_device_properties.limits.framebufferColorSampleCounts)) & @as(u32, @bitCast(physical_device_properties.limits.framebufferDepthSampleCounts)));
 
-    const counts = physical_device_properties.limits.framebufferColorSampleCounts &
-        physical_device_properties.limits.framebufferDepthSampleCounts;
-
-    if (counts & vulkan.VK_SAMPLE_COUNT_64_BIT != 0) {
-        return vulkan.VK_SAMPLE_COUNT_64_BIT;
+    if (counts.bit_64) {
+        return .VK_SAMPLE_COUNT_64_BIT;
     }
-    if (counts & vulkan.VK_SAMPLE_COUNT_32_BIT != 0) {
-        return vulkan.VK_SAMPLE_COUNT_32_BIT;
+    if (counts.bit_32) {
+        return .VK_SAMPLE_COUNT_32_BIT;
     }
-    if (counts & vulkan.VK_SAMPLE_COUNT_16_BIT != 0) {
-        return vulkan.VK_SAMPLE_COUNT_16_BIT;
+    if (counts.bit_16) {
+        return .VK_SAMPLE_COUNT_16_BIT;
     }
-    if (counts & vulkan.VK_SAMPLE_COUNT_8_BIT != 0) {
-        return vulkan.VK_SAMPLE_COUNT_8_BIT;
+    if (counts.bit_8) {
+        return .VK_SAMPLE_COUNT_8_BIT;
     }
-    if (counts & vulkan.VK_SAMPLE_COUNT_4_BIT != 0) {
-        return vulkan.VK_SAMPLE_COUNT_4_BIT;
+    if (counts.bit_4) {
+        return .VK_SAMPLE_COUNT_4_BIT;
     }
-    if (counts & vulkan.VK_SAMPLE_COUNT_2_BIT != 0) {
-        return vulkan.VK_SAMPLE_COUNT_2_BIT;
+    if (counts.bit_2) {
+        return .VK_SAMPLE_COUNT_2_BIT;
     }
 
-    return vulkan.VK_SAMPLE_COUNT_1_BIT;
+    return .VK_SAMPLE_COUNT_1_BIT;
 }
 
 // --- }}}1
@@ -641,14 +619,16 @@ fn get_max_usable_sample_count(physical_device: vulkan.VkPhysicalDevice) VulkanE
 // --- Logical Device {{{1
 
 fn create_logical_device(
-    physical_device: vulkan.VkPhysicalDevice,
+    physical_device: l0vk.VkPhysicalDevice,
     allocator_: std.mem.Allocator,
-    surface: vulkan.VkSurfaceKHR,
+    surface: l0vk.VkSurfaceKHR,
 ) !vulkan.VkDevice {
-    const queue_family_indices = try find_queue_families(physical_device, allocator_, surface);
+    const queue_family_indices = try find_queue_families(
+        physical_device,
+        allocator_,
+        surface,
+    );
 
-    var queue_create_infos = std.ArrayList(vulkan.VkDeviceQueueCreateInfo).init(allocator_);
-    defer queue_create_infos.deinit();
     var unique_queue_families = std.ArrayList(u32).init(allocator_);
     defer unique_queue_families.deinit();
     const indices = [_]u32{ queue_family_indices.graphics_family.?, queue_family_indices.present_family.? };
@@ -667,114 +647,37 @@ fn create_logical_device(
         }
     }
 
+    var queue_create_infos = std.ArrayList(l0vk.VkDeviceQueueCreateInfo).init(allocator_);
+    defer queue_create_infos.deinit();
     const queue_priority: f32 = 1.0;
     for (unique_queue_families.items) |queue_family| {
-        var queue_create_info: vulkan.VkDeviceQueueCreateInfo = .{
-            .sType = vulkan.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+        var queue_create_info: l0vk.VkDeviceQueueCreateInfo = .{
             .queueFamilyIndex = queue_family,
             .queueCount = 1,
             .pQueuePriorities = &queue_priority,
-            .pNext = null,
-            .flags = 0,
         };
 
         try queue_create_infos.append(queue_create_info);
     }
 
-    const device_features: vulkan.VkPhysicalDeviceFeatures = .{
-        .samplerAnisotropy = vulkan.VK_TRUE,
-
-        .robustBufferAccess = vulkan.VK_FALSE,
-        .fullDrawIndexUint32 = vulkan.VK_FALSE,
-        .imageCubeArray = vulkan.VK_FALSE,
-        .independentBlend = vulkan.VK_FALSE,
-        .geometryShader = vulkan.VK_FALSE,
-        .tessellationShader = vulkan.VK_FALSE,
-        .sampleRateShading = vulkan.VK_FALSE,
-        .dualSrcBlend = vulkan.VK_FALSE,
-        .logicOp = vulkan.VK_FALSE,
-        .multiDrawIndirect = vulkan.VK_FALSE,
-        .drawIndirectFirstInstance = vulkan.VK_FALSE,
-        .depthClamp = vulkan.VK_FALSE,
-        .depthBiasClamp = vulkan.VK_FALSE,
-        .fillModeNonSolid = vulkan.VK_FALSE,
-        .depthBounds = vulkan.VK_FALSE,
-        .wideLines = vulkan.VK_FALSE,
-        .largePoints = vulkan.VK_FALSE,
-        .alphaToOne = vulkan.VK_FALSE,
-        .multiViewport = vulkan.VK_FALSE,
-        .textureCompressionETC2 = vulkan.VK_FALSE,
-        .textureCompressionASTC_LDR = vulkan.VK_FALSE,
-        .textureCompressionBC = vulkan.VK_FALSE,
-        .occlusionQueryPrecise = vulkan.VK_FALSE,
-        .pipelineStatisticsQuery = vulkan.VK_FALSE,
-        .vertexPipelineStoresAndAtomics = vulkan.VK_FALSE,
-        .fragmentStoresAndAtomics = vulkan.VK_FALSE,
-        .shaderTessellationAndGeometryPointSize = vulkan.VK_FALSE,
-        .shaderImageGatherExtended = vulkan.VK_FALSE,
-        .shaderStorageImageExtendedFormats = vulkan.VK_FALSE,
-        .shaderStorageImageMultisample = vulkan.VK_FALSE,
-        .shaderStorageImageReadWithoutFormat = vulkan.VK_FALSE,
-        .shaderStorageImageWriteWithoutFormat = vulkan.VK_FALSE,
-        .shaderUniformBufferArrayDynamicIndexing = vulkan.VK_FALSE,
-        .shaderSampledImageArrayDynamicIndexing = vulkan.VK_FALSE,
-        .shaderStorageBufferArrayDynamicIndexing = vulkan.VK_FALSE,
-        .shaderStorageImageArrayDynamicIndexing = vulkan.VK_FALSE,
-        .shaderClipDistance = vulkan.VK_FALSE,
-        .shaderCullDistance = vulkan.VK_FALSE,
-        .shaderFloat64 = vulkan.VK_FALSE,
-        .shaderInt64 = vulkan.VK_FALSE,
-        .shaderInt16 = vulkan.VK_FALSE,
-        .shaderResourceResidency = vulkan.VK_FALSE,
-        .shaderResourceMinLod = vulkan.VK_FALSE,
-        .sparseBinding = vulkan.VK_FALSE,
-        .sparseResidencyBuffer = vulkan.VK_FALSE,
-        .sparseResidencyImage2D = vulkan.VK_FALSE,
-        .sparseResidencyImage3D = vulkan.VK_FALSE,
-        .sparseResidency2Samples = vulkan.VK_FALSE,
-        .sparseResidency4Samples = vulkan.VK_FALSE,
-        .sparseResidency8Samples = vulkan.VK_FALSE,
-        .sparseResidency16Samples = vulkan.VK_FALSE,
-        .sparseResidencyAliased = vulkan.VK_FALSE,
-        .variableMultisampleRate = vulkan.VK_FALSE,
-        .inheritedQueries = vulkan.VK_FALSE,
+    const device_features: l0vk.VkPhysicalDeviceFeatures = .{
+        .samplerAnisotropy = true,
     };
 
-    var create_info: vulkan.VkDeviceCreateInfo = .{
-        .sType = vulkan.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-        .queueCreateInfoCount = @intCast(queue_create_infos.items.len),
-        .pQueueCreateInfos = queue_create_infos.items.ptr,
+    var create_info = l0vk.VkDeviceCreateInfo{
+        .queueCreateInfos = queue_create_infos.items,
         .pEnabledFeatures = &device_features,
-        .pNext = null,
-        .flags = 0,
-
-        // To be changed.
-        .enabledLayerCount = 0,
-        .ppEnabledLayerNames = null,
-        .enabledExtensionCount = @intCast(device_extensions.len),
-        .ppEnabledExtensionNames = device_extensions[0..].ptr,
+        .enabledExtensionNames = &device_extensions,
     };
-
     if (enable_validation_layers) {
-        create_info.enabledLayerCount = validation_layers.len;
-        create_info.ppEnabledLayerNames = validation_layers[0..].ptr;
+        create_info.enabledLayerNames = &validation_layers;
     }
 
-    var logical_device: vulkan.VkDevice = undefined;
-    const result = vulkan.vkCreateDevice(physical_device, &create_info, null, &logical_device);
-    if (result != vulkan.VK_SUCCESS) {
-        switch (result) {
-            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
-            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
-            vulkan.VK_ERROR_INITIALIZATION_FAILED => return VulkanError.vk_error_initialization_failed,
-            vulkan.VK_ERROR_EXTENSION_NOT_PRESENT => return VulkanError.vk_error_extension_not_present,
-            vulkan.VK_ERROR_FEATURE_NOT_PRESENT => return VulkanError.vk_error_feature_not_present,
-            vulkan.VK_ERROR_TOO_MANY_OBJECTS => return VulkanError.vk_error_too_many_objects,
-            vulkan.VK_ERROR_DEVICE_LOST => return VulkanError.vk_error_device_lost,
-            else => unreachable,
-        }
-    }
-
+    const logical_device = try l0vk.vkCreateDevice(
+        physical_device,
+        &create_info,
+        null,
+    );
     return logical_device;
 }
 
