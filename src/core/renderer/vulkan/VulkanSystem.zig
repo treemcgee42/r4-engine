@@ -686,73 +686,28 @@ fn create_logical_device(
 // --- Swapchain support {{{1
 
 pub const SwapchainSupportDetails = struct {
-    capabilities: vulkan.VkSurfaceCapabilitiesKHR,
-    formats: []vulkan.VkSurfaceFormatKHR,
-    present_modes: []vulkan.VkPresentModeKHR,
+    capabilities: l0vk.VkSurfaceCapabilitiesKHR,
+    formats: []l0vk.VkSurfaceFormatKHR,
+    present_modes: []l0vk.VkPresentModeKHR,
 
     pub fn init(
         allocator_: std.mem.Allocator,
-        physical_device: vulkan.VkPhysicalDevice,
-        surface: vulkan.VkSurfaceKHR,
-    ) VulkanError!SwapchainSupportDetails {
-        var capabilities: vulkan.VkSurfaceCapabilitiesKHR = undefined;
-        var formats: []vulkan.VkSurfaceFormatKHR = undefined;
-        var present_modes: []vulkan.VkPresentModeKHR = undefined;
+        physical_device: l0vk.VkPhysicalDevice,
+        surface: l0vk.VkSurfaceKHR,
+    ) !SwapchainSupportDetails {
+        const capabilities = try l0vk.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface);
 
-        var result = vulkan.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface, &capabilities);
-        if (result != vulkan.VK_SUCCESS) {
-            switch (result) {
-                vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
-                vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
-                vulkan.VK_ERROR_SURFACE_LOST_KHR => return VulkanError.vk_error_surface_lost_khr,
-                else => unreachable,
-            }
-        }
+        const formats = try l0vk.vkGetPhysicalDeviceSurfaceFormatsKHR(
+            allocator_,
+            physical_device,
+            surface,
+        );
 
-        // --- Format modes.
-
-        var format_count: u32 = undefined;
-        result = vulkan.vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, &format_count, null);
-        if (result != vulkan.VK_SUCCESS) {
-            unreachable;
-        }
-        if (format_count != 0) {
-            formats = try allocator_.alloc(vulkan.VkSurfaceFormatKHR, format_count);
-            result = vulkan.vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, &format_count, formats.ptr);
-            if (result != vulkan.VK_SUCCESS and result != vulkan.VK_INCOMPLETE) {
-                switch (result) {
-                    vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
-                    vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
-                    vulkan.VK_ERROR_SURFACE_LOST_KHR => return VulkanError.vk_error_surface_lost_khr,
-                    else => unreachable,
-                }
-            }
-        }
-
-        // --- Present modes.
-
-        var present_mode_count: u32 = undefined;
-        result = vulkan.vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, surface, &present_mode_count, null);
-        if (result != vulkan.VK_SUCCESS) {
-            unreachable;
-        }
-        if (present_mode_count != 0) {
-            present_modes = try allocator_.alloc(vulkan.VkPresentModeKHR, present_mode_count);
-            result = vulkan.vkGetPhysicalDeviceSurfacePresentModesKHR(
-                physical_device,
-                surface,
-                &present_mode_count,
-                present_modes.ptr,
-            );
-            if (result != vulkan.VK_SUCCESS) {
-                switch (result) {
-                    vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
-                    vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
-                    vulkan.VK_ERROR_SURFACE_LOST_KHR => return VulkanError.vk_error_surface_lost_khr,
-                    else => unreachable,
-                }
-            }
-        }
+        const present_modes = try l0vk.vkGetPhysicalDeviceSurfacePresentModesKHR(
+            allocator_,
+            physical_device,
+            surface,
+        );
 
         return .{
             .capabilities = capabilities,
@@ -768,9 +723,9 @@ pub const SwapchainSupportDetails = struct {
 };
 
 pub const SwapchainSettings = struct {
-    surface_format: vulkan.VkSurfaceFormatKHR,
-    present_mode: vulkan.VkPresentModeKHR,
-    extent: vulkan.VkExtent2D,
+    surface_format: l0vk.VkSurfaceFormatKHR,
+    present_mode: l0vk.VkPresentModeKHR,
+    extent: l0vk.VkExtent2D,
     min_image_count: u32,
     // Right now, we only support up to two distinct queue families,
     // which should only be the case if the graphics and present
@@ -779,10 +734,10 @@ pub const SwapchainSettings = struct {
     queue_family_index_count: u32,
     queue_family_indices: [2]u32,
 
-    capabilities: vulkan.VkSurfaceCapabilitiesKHR,
+    capabilities: l0vk.VkSurfaceCapabilitiesKHR,
 
-    logical_device: vulkan.VkDevice,
-    surface: vulkan.VkSurfaceKHR,
+    logical_device: l0vk.VkDevice,
+    surface: l0vk.VkSurfaceKHR,
 };
 
 /// We abstract this because the renderpass might like to know some of this information.
@@ -838,9 +793,9 @@ pub fn query_swapchain_settings(
     };
 }
 
-fn choose_swap_surface_format(available_formats: []const vulkan.VkSurfaceFormatKHR) vulkan.VkSurfaceFormatKHR {
+fn choose_swap_surface_format(available_formats: []const l0vk.VkSurfaceFormatKHR) l0vk.VkSurfaceFormatKHR {
     for (available_formats) |available_format| {
-        if (available_format.format == vulkan.VK_FORMAT_B8G8R8A8_SRGB and available_format.colorSpace == vulkan.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+        if (available_format.format == .b8g8r8a8_srgb and available_format.colorSpace == .srgb_nonlinear_khr) {
             return available_format;
         }
     }
@@ -848,24 +803,24 @@ fn choose_swap_surface_format(available_formats: []const vulkan.VkSurfaceFormatK
     return available_formats[0];
 }
 
-fn choose_swap_chain_present_mode(available_present_modes: []const vulkan.VkPresentModeKHR) vulkan.VkPresentModeKHR {
+fn choose_swap_chain_present_mode(available_present_modes: []const l0vk.VkPresentModeKHR) l0vk.VkPresentModeKHR {
     for (available_present_modes) |available_present_mode| {
-        if (available_present_mode == vulkan.VK_PRESENT_MODE_MAILBOX_KHR) {
+        if (available_present_mode == .mailbox_khr) {
             return available_present_mode;
         }
     }
 
-    return vulkan.VK_PRESENT_MODE_FIFO_KHR;
+    return .fifo_khr;
 }
 
-fn choose_swap_extent(capabilities: vulkan.VkSurfaceCapabilitiesKHR) vulkan.VkExtent2D {
+fn choose_swap_extent(capabilities: l0vk.VkSurfaceCapabilitiesKHR) l0vk.VkExtent2D {
     if (capabilities.currentExtent.width != std.math.maxInt(u32)) {
         return capabilities.currentExtent;
     } else {
         const width = @as(u32, @intCast(glfw.glfwGetVideoMode(glfw.glfwGetPrimaryMonitor()).*.width));
         const height = @as(u32, @intCast(glfw.glfwGetVideoMode(glfw.glfwGetPrimaryMonitor()).*.height));
 
-        var actual_extent = vulkan.VkExtent2D{
+        var actual_extent = l0vk.VkExtent2D{
             .width = width,
             .height = height,
         };

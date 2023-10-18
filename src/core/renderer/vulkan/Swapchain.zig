@@ -166,8 +166,8 @@ fn create_swapchain(
         .sType = vulkan.VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
         .surface = swapchain_settings.surface,
         .minImageCount = swapchain_settings.min_image_count,
-        .imageFormat = swapchain_settings.surface_format.format,
-        .imageColorSpace = swapchain_settings.surface_format.colorSpace,
+        .imageFormat = @intFromEnum(swapchain_settings.surface_format.format),
+        .imageColorSpace = @intFromEnum(swapchain_settings.surface_format.colorSpace),
         .imageExtent = swapchain_settings.extent,
         .imageArrayLayers = 1,
         .imageUsage = vulkan.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
@@ -175,9 +175,9 @@ fn create_swapchain(
         .imageSharingMode = swapchain_settings.image_sharing_mode,
         .queueFamilyIndexCount = swapchain_settings.queue_family_index_count,
         .pQueueFamilyIndices = swapchain_settings.queue_family_indices[0..].ptr,
-        .preTransform = swapchain_settings.capabilities.currentTransform,
+        .preTransform = @intFromEnum(swapchain_settings.capabilities.currentTransform),
         .compositeAlpha = vulkan.VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-        .presentMode = swapchain_settings.present_mode,
+        .presentMode = @intFromEnum(swapchain_settings.present_mode),
         .clipped = vulkan.VK_TRUE,
         .oldSwapchain = @ptrCast(vulkan.VK_NULL_HANDLE),
         .pNext = null,
@@ -217,7 +217,7 @@ fn create_swapchain(
     return .{
         .swapchain = swapchain,
         .images = swapchain_images,
-        .image_format = swapchain_settings.surface_format.format,
+        .image_format = @intFromEnum(swapchain_settings.surface_format.format),
         .extent = swapchain_settings.extent,
     };
 }
