@@ -8,8 +8,6 @@ const PipelineSystem = @import("./pipeline.zig").PipelineSystem;
 const RenderPass = @import("./RenderPass.zig");
 pub const RenderPassInitInfo = RenderPass.RenderPassInitInfo;
 const Window = @import("../../Window.zig");
-const l0 = @import("../layer0/l0.zig");
-const l0vk = l0.vulkan;
 
 allocator: std.mem.Allocator,
 
@@ -221,7 +219,7 @@ pub const VulkanError = error{
     vk_error_invalid_shader_nv,
 } || std.mem.Allocator.Error;
 
-pub fn init(allocator_: std.mem.Allocator) !VulkanSystem {
+pub fn init(allocator_: std.mem.Allocator) VulkanError!VulkanSystem {
     const instance = try create_vulkan_instance(allocator_);
 
     var debug_messenger: ?DebugMessenger = null;
@@ -326,9 +324,8 @@ pub fn prep_for_deinit(self: *VulkanSystem) void {
 
 // --- Instance {{{1
 
-fn create_vulkan_instance(allocator_: std.mem.Allocator) !vulkan.VkInstance {
+fn create_vulkan_instance(allocator_: std.mem.Allocator) VulkanError!vulkan.VkInstance {
     var result: vulkan.VkResult = undefined;
-    _ = result;
 
     if (enable_validation_layers) {
         const found = try check_validation_layer_support(allocator_);
@@ -337,34 +334,47 @@ fn create_vulkan_instance(allocator_: std.mem.Allocator) !vulkan.VkInstance {
 
     // --
 
-    const app_info = l0vk.VkApplicationInfo{
+    const app_info = vulkan.VkApplicationInfo{
+        .sType = vulkan.VK_STRUCTURE_TYPE_APPLICATION_INFO,
         .pApplicationName = "Hello Triangle",
-        .applicationVersion = .{ .major = 1, .minor = 0, .patch = 0 },
-
+        .applicationVersion = vulkan.VK_MAKE_VERSION(1, 0, 0),
         .pEngineName = "No Engine",
-        .engineVersion = .{ .major = 1, .minor = 0, .patch = 0 },
+        .engineVersion = vulkan.VK_MAKE_VERSION(1, 0, 0),
+        .apiVersion = vulkan.VK_API_VERSION_1_0,
+        .pNext = null,
     };
 
     // ---
 
-    var available_extensions = try l0vk.vkEnumerateInstanceExtensionProperties(allocator_);
-    defer allocator_.free(available_extensions);
-
-    const required_extensions = try get_required_extensions(allocator_);
-    defer required_extensions.deinit();
-
-    var create_info = l0vk.VkInstanceCreateInfo{
-        .flags = .{
-            .enumerate_portability_khr = true,
-        },
-
+    var createInfo = vulkan.VkInstanceCreateInfo{
+        .sType = vulkan.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
         .pApplicationInfo = &app_info,
-        .enabledExtensionNames = required_extensions.items,
-        .enabledLayerNames = &.{},
+        .pNext = null,
+        .flags = 0,
+        .enabledExtensionCount = 0,
+        .ppEnabledExtensionNames = null,
+        .enabledLayerCount = 0,
+        .ppEnabledLayerNames = null,
     };
 
     if (enable_validation_layers) {
-        create_info.enabledLayerNames = validation_layers[0..];
+        createInfo.enabledLayerCount = validation_layers.len;
+        createInfo.ppEnabledLayerNames = validation_layers[0..].ptr;
+    }
+
+    var available_extensions_count: u32 = 0;
+    result = vulkan.vkEnumerateInstanceExtensionProperties(null, &available_extensions_count, null);
+    if (result != vulkan.VK_SUCCESS) unreachable;
+    var available_extensions = try allocator_.alloc(vulkan.VkExtensionProperties, available_extensions_count);
+    defer allocator_.free(available_extensions);
+    result = vulkan.vkEnumerateInstanceExtensionProperties(null, &available_extensions_count, available_extensions.ptr);
+    if (result != vulkan.VK_SUCCESS and result != vulkan.VK_INCOMPLETE) {
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+            vulkan.VK_ERROR_LAYER_NOT_PRESENT => return VulkanError.vk_error_layer_not_present,
+            else => unreachable,
+        }
     }
 
     // std.log.info("{d} available extensions:", .{available_extensions_count});
@@ -372,9 +382,32 @@ fn create_vulkan_instance(allocator_: std.mem.Allocator) !vulkan.VkInstance {
     //     std.log.info("\t{s}", .{extension.extensionName});
     // }
 
+    const required_extensions = try get_required_extensions(allocator_);
+    defer required_extensions.deinit();
+
+    createInfo.flags |= vulkan.VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+
+    createInfo.enabledExtensionCount = @intCast(required_extensions.items.len);
+    createInfo.ppEnabledExtensionNames = required_extensions.items.ptr;
+
     // ---
 
-    const vk_instance = try l0vk.vkCreateInstance(&create_info, null);
+    var debug_create_info = DebugMessenger.empty_debug_messenger_create_info();
+    if (enable_validation_layers) {
+        createInfo.enabledLayerCount = validation_layers.len;
+        createInfo.ppEnabledLayerNames = validation_layers[0..].ptr;
+
+        debug_create_info = DebugMessenger.populated_debug_messenger_create_info();
+        debug_create_info.pNext = @ptrCast(&debug_create_info);
+    }
+
+    // ---
+
+    var vk_instance: vulkan.VkInstance = null;
+    result = vulkan.vkCreateInstance(&createInfo, null, &vk_instance);
+    if (result != vulkan.VK_SUCCESS) {
+        return VulkanError.instance_init_failed;
+    }
 
     return vk_instance;
 }
@@ -390,30 +423,44 @@ fn get_required_extensions(allocator_: std.mem.Allocator) VulkanError!std.ArrayL
     }
 
     if (enable_validation_layers) {
-        try extensions.append(l0vk.ExtensionNames.VK_EXT_DEBUG_UTILS);
+        try extensions.append(vulkan.VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     }
 
-    try extensions.append(l0vk.ExtensionNames.VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2);
-    try extensions.append(l0vk.ExtensionNames.VK_KHR_PORTABILITY_ENUMERATION);
+    try extensions.append(vulkan.VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
+    try extensions.append(vulkan.VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
 
     return extensions;
 }
 
-fn check_validation_layer_support(allocator_: std.mem.Allocator) !bool {
-    var available_layers = try l0vk.vkEnumerateInstanceLayerProperties(allocator_);
+fn check_validation_layer_support(allocator_: std.mem.Allocator) VulkanError!bool {
+    var available_layers_count: u32 = 0;
+    var result = vulkan.vkEnumerateInstanceLayerProperties(&available_layers_count, null);
+    if (result != vulkan.VK_SUCCESS) {
+        unreachable;
+    }
+
+    var available_layers = try allocator_.alloc(vulkan.VkLayerProperties, available_layers_count);
     defer allocator_.free(available_layers);
+    result = vulkan.vkEnumerateInstanceLayerProperties(&available_layers_count, available_layers.ptr);
+    if (result != vulkan.VK_SUCCESS) {
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return error.vk_error_out_of_host_memory,
+            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return error.vk_error_out_of_device_memory,
+            else => unreachable,
+        }
+    }
 
     var i: usize = 0;
     for (validation_layers) |layer_name| {
         var layer_found = false;
 
-        while (i < available_layers.len) : (i += 1) {
+        while (i < available_layers_count) : (i += 1) {
             const s1 = available_layers[i].layerName;
             const s2 = layer_name;
 
             // Manual strcmp.
             var j: usize = 0;
-            while (j < l0vk.VK_MAX_EXTENSION_NAME_SIZE) : (j += 1) {
+            while (j < vulkan.VK_MAX_EXTENSION_NAME_SIZE) : (j += 1) {
                 // Not completely correct but...
                 if (s1[j] == 0) {
                     layer_found = true;
@@ -453,20 +500,36 @@ fn pick_physical_device(
     instance: vulkan.VkInstance,
     allocator_: std.mem.Allocator,
     surface: vulkan.VkSurfaceKHR,
-) !vulkan.VkPhysicalDevice {
-    var devices = try l0vk.vkEnumeratePhysicalDevices(allocator_, instance);
-    defer allocator_.free(devices);
+) VulkanError!vulkan.VkPhysicalDevice {
+    var device_count: u32 = 0;
+    var result = vulkan.vkEnumeratePhysicalDevices(instance, &device_count, null);
+    if (result != vulkan.VK_SUCCESS) {
+        unreachable;
+    }
 
-    if (devices.len == 0) {
+    if (device_count == 0) {
         return VulkanError.no_suitable_gpu;
     }
 
-    var selected_device: ?l0vk.VkPhysicalDevice = null;
+    var devices = try allocator_.alloc(vulkan.VkPhysicalDevice, device_count);
+    defer allocator_.free(devices);
+    result = vulkan.vkEnumeratePhysicalDevices(instance, &device_count, devices.ptr);
+    if (result != vulkan.VK_SUCCESS) {
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+            vulkan.VK_ERROR_INITIALIZATION_FAILED => return VulkanError.vk_error_initialization_failed,
+
+            else => unreachable,
+        }
+    }
+
+    var selected_device: ?vulkan.VkPhysicalDevice = null;
 
     // std.log.info("{d} devices found:", .{device_count});
     for (devices) |device| {
-        var device_properties = l0vk.vkGetPhysicalDeviceProperties(device);
-        _ = device_properties;
+        var device_properties: vulkan.VkPhysicalDeviceProperties = undefined;
+        vulkan.vkGetPhysicalDeviceProperties(device, &device_properties);
 
         var device_was_selected = false;
 
@@ -493,10 +556,10 @@ fn pick_physical_device(
 }
 
 fn is_device_suitable(
-    device: l0vk.VkPhysicalDevice,
+    device: vulkan.VkPhysicalDevice,
     allocator_: std.mem.Allocator,
     surface: vulkan.VkSurfaceKHR,
-) !bool {
+) VulkanError!bool {
     const indices = try find_queue_families(device, allocator_, surface);
 
     const extensions_supported = try check_device_extension_support(device, allocator_);
@@ -531,31 +594,40 @@ const QueueFamilyIndices = struct {
 };
 
 pub fn find_queue_families(
-    physical_device: l0vk.VkPhysicalDevice,
+    physical_device: vulkan.VkPhysicalDevice,
     allocator_: std.mem.Allocator,
     surface: vulkan.VkSurfaceKHR,
-) !QueueFamilyIndices {
+) VulkanError!QueueFamilyIndices {
     var indices = QueueFamilyIndices.init_null();
 
-    var queue_families = try l0vk.vkGetPhysicalDeviceQueueFamilyProperties(allocator_, physical_device);
+    var queue_family_count: u32 = 0;
+    vulkan.vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_count, null);
+    var queue_families = try allocator_.alloc(vulkan.VkQueueFamilyProperties, queue_family_count);
     defer allocator_.free(queue_families);
+    vulkan.vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_count, queue_families.ptr);
 
     var i: u32 = 0;
-    while (i < queue_families.len) : (i += 1) {
+    while (i < queue_family_count) : (i += 1) {
         if (indices.is_complete()) break;
 
         const queue_family = queue_families[i];
 
-        if (queue_family.queueFlags.graphics) {
+        if (queue_family.queueFlags & vulkan.VK_QUEUE_GRAPHICS_BIT != 0) {
             indices.graphics_family = i;
         }
 
-        const present_support = try l0vk.vkGetPhysicalDeviceSurfaceSupportKHR(
-            physical_device,
-            i,
-            surface,
-        );
-        if (present_support) {
+        var present_support = vulkan.VK_FALSE;
+        const result = vulkan.vkGetPhysicalDeviceSurfaceSupportKHR(physical_device, i, surface, &present_support);
+        if (result != vulkan.VK_SUCCESS) {
+            switch (result) {
+                vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+                vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+                vulkan.VK_ERROR_SURFACE_LOST_KHR => return VulkanError.vk_error_surface_lost_khr,
+                else => unreachable,
+            }
+        }
+
+        if (present_support == vulkan.VK_TRUE) {
             indices.present_family = i;
         }
     }
@@ -644,7 +716,7 @@ fn create_logical_device(
     physical_device: vulkan.VkPhysicalDevice,
     allocator_: std.mem.Allocator,
     surface: vulkan.VkSurfaceKHR,
-) !vulkan.VkDevice {
+) VulkanError!vulkan.VkDevice {
     const queue_family_indices = try find_queue_families(physical_device, allocator_, surface);
 
     var queue_create_infos = std.ArrayList(vulkan.VkDeviceQueueCreateInfo).init(allocator_);
@@ -890,7 +962,7 @@ pub fn query_swapchain_settings(
     physical_device: vulkan.VkPhysicalDevice,
     logical_device: vulkan.VkDevice,
     surface: vulkan.VkSurfaceKHR,
-) !SwapchainSettings {
+) VulkanError!SwapchainSettings {
     var swap_chain_support = try SwapchainSupportDetails.init(allocator_, physical_device, surface);
     defer swap_chain_support.deinit(allocator_);
 
@@ -991,7 +1063,7 @@ fn create_command_pool(
     physical_device: vulkan.VkPhysicalDevice,
     logical_device: vulkan.VkDevice,
     surface: vulkan.VkSurfaceKHR,
-) !vulkan.VkCommandPool {
+) VulkanError!vulkan.VkCommandPool {
     const queue_family_indices = try find_queue_families(physical_device, allocator_, surface);
 
     const pool_info = vulkan.VkCommandPoolCreateInfo{

@@ -31,7 +31,7 @@ current_frame: usize = 0,
 
 pub const max_frames_in_flight: usize = 2;
 
-pub fn init(allocator: std.mem.Allocator, system: *VulkanSystem, surface: vulkan.VkSurfaceKHR) VulkanError!Swapchain {
+pub fn init(allocator: std.mem.Allocator, system: *VulkanSystem, surface: vulkan.VkSurfaceKHR) !Swapchain {
     const swapchain_settings = try query_swapchain_settings(
         allocator,
         system.physical_device,
