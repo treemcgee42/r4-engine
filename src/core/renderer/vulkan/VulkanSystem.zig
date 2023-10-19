@@ -1,6 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const vulkan = @import("vulkan");
 const glfw = @import("glfw");
 const DebugMessenger = @import("./DebugMessenger.zig");
 const VulkanSystem = @This();
@@ -13,17 +12,17 @@ const l0vk = l0.vulkan;
 
 allocator: std.mem.Allocator,
 
-instance: vulkan.VkInstance,
+instance: l0vk.VkInstance,
 debug_messenger: ?DebugMessenger,
 
-physical_device: vulkan.VkPhysicalDevice,
+physical_device: l0vk.VkPhysicalDevice,
 support_details: SwapchainSupportDetails,
-logical_device: vulkan.VkDevice,
+logical_device: l0vk.VkDevice,
 
-graphics_queue: vulkan.VkQueue,
-present_queue: vulkan.VkQueue,
+graphics_queue: l0vk.VkQueue,
+present_queue: l0vk.VkQueue,
 
-command_pool: vulkan.VkCommandPool,
+command_pool: l0vk.VkCommandPool,
 
 max_usable_sample_count: l0vk.VkSampleCountFlagBits,
 
@@ -82,87 +81,65 @@ const RenderPassSystem = struct {
 pub const FenceHandle = usize;
 pub const SemaphoreHandle = usize;
 const SyncSystem = struct {
-    fences: std.ArrayList(vulkan.VkFence),
-    semaphores: std.ArrayList(vulkan.VkSemaphore),
+    fences: std.ArrayList(l0vk.VkFence),
+    semaphores: std.ArrayList(l0vk.VkSemaphore),
 
     fn init(allocator_: std.mem.Allocator) SyncSystem {
         return .{
-            .fences = std.ArrayList(vulkan.VkFence).init(allocator_),
-            .semaphores = std.ArrayList(vulkan.VkSemaphore).init(allocator_),
+            .fences = std.ArrayList(l0vk.VkFence).init(allocator_),
+            .semaphores = std.ArrayList(l0vk.VkSemaphore).init(allocator_),
         };
     }
 
     fn deinit(self: *SyncSystem, system: *VulkanSystem) void {
         var i: usize = 0;
         while (i < self.fences.items.len) : (i += 1) {
-            vulkan.vkDestroyFence(system.logical_device, self.fences.items[i], null);
+            l0vk.vkDestroyFence(system.logical_device, self.fences.items[i], null);
         }
         self.fences.deinit();
 
         i = 0;
         while (i < self.semaphores.items.len) : (i += 1) {
-            vulkan.vkDestroySemaphore(system.logical_device, self.semaphores.items[i], null);
+            l0vk.vkDestroySemaphore(system.logical_device, self.semaphores.items[i], null);
         }
         self.semaphores.deinit();
     }
 
     fn create_fence(self: *SyncSystem, system: *VulkanSystem) !FenceHandle {
-        var fence_info = vulkan.VkFenceCreateInfo{
-            .sType = vulkan.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-            .pNext = null,
-            .flags = vulkan.VK_FENCE_CREATE_SIGNALED_BIT,
+        var fence_info = l0vk.VkFenceCreateInfo{
+            .flags = .{
+                .signaled = true,
+            },
         };
 
-        var fence: vulkan.VkFence = undefined;
-        var result = vulkan.vkCreateFence(
+        const fence = try l0vk.vkCreateFence(
             system.logical_device,
             &fence_info,
             null,
-            &fence,
         );
-        if (result != vulkan.VK_SUCCESS) {
-            switch (result) {
-                vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
-                vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
-                else => unreachable,
-            }
-        }
 
         try self.fences.append(fence);
         return self.fences.items.len - 1;
     }
 
     fn create_semaphore(self: *SyncSystem, system: *VulkanSystem) !SemaphoreHandle {
-        var semaphore_info = vulkan.VkSemaphoreCreateInfo{
-            .sType = vulkan.VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
-            .pNext = null,
-            .flags = 0,
-        };
+        var semaphore_info = l0vk.VkSemaphoreCreateInfo{};
 
-        var semaphore: vulkan.VkSemaphore = undefined;
-        var result = vulkan.vkCreateSemaphore(
+        const semaphore = try l0vk.vkCreateSemaphore(
             system.logical_device,
             &semaphore_info,
             null,
-            &semaphore,
         );
-        if (result != vulkan.VK_SUCCESS) {
-            switch (result) {
-                vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
-                vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
-                else => unreachable,
-            }
-        }
 
         try self.semaphores.append(semaphore);
         return self.semaphores.items.len - 1;
     }
 
-    fn get_semaphore_from_handle(self: *SyncSystem, handle: SemaphoreHandle) *vulkan.VkSemaphore {
+    fn get_semaphore_from_handle(self: *SyncSystem, handle: SemaphoreHandle) *l0vk.VkSemaphore {
         return &self.semaphores.items[handle];
     }
 
-    fn get_fence_from_handle(self: *SyncSystem, handle: FenceHandle) *vulkan.VkFence {
+    fn get_fence_from_handle(self: *SyncSystem, handle: FenceHandle) *l0vk.VkFence {
         return &self.fences.items[handle];
     }
 };
@@ -175,11 +152,11 @@ pub fn create_semaphore(self: *VulkanSystem) !SemaphoreHandle {
     return self.sync_system.create_semaphore(self);
 }
 
-pub fn get_semaphore_from_handle(self: *VulkanSystem, handle: SemaphoreHandle) *vulkan.VkSemaphore {
+pub fn get_semaphore_from_handle(self: *VulkanSystem, handle: SemaphoreHandle) *l0vk.VkSemaphore {
     return self.sync_system.get_semaphore_from_handle(handle);
 }
 
-pub fn get_fence_from_handle(self: *VulkanSystem, handle: FenceHandle) *vulkan.VkFence {
+pub fn get_fence_from_handle(self: *VulkanSystem, handle: FenceHandle) *l0vk.VkFence {
     return self.sync_system.get_fence_from_handle(handle);
 }
 
@@ -188,7 +165,7 @@ const validation_layers = [_][*c]const u8{
     "VK_LAYER_KHRONOS_validation",
 };
 
-const device_extensions = [_][*c]const u8{ vulkan.VK_KHR_SWAPCHAIN_EXTENSION_NAME, "VK_KHR_portability_subset" };
+const device_extensions = [_][*c]const u8{ l0vk.ExtensionNames.khr_swapchain, "VK_KHR_portability_subset" };
 
 const max_frames_in_flight: usize = 2;
 
@@ -242,7 +219,7 @@ pub fn init(allocator_: std.mem.Allocator) !VulkanSystem {
     }
     defer glfw.glfwDestroyWindow(tmp_window);
     var surface = try create_surface(instance, tmp_window.?);
-    defer vulkan.vkDestroySurfaceKHR(instance, surface, null);
+    defer l0vk.vkDestroySurfaceKHR(instance, surface, null);
 
     // ---
 
@@ -253,10 +230,8 @@ pub fn init(allocator_: std.mem.Allocator) !VulkanSystem {
     // ---
 
     const queue_family_indices = try find_queue_families(physical_device, allocator_, surface);
-    var graphics_queue: vulkan.VkQueue = undefined;
-    vulkan.vkGetDeviceQueue(logical_device, queue_family_indices.graphics_family.?, 0, &graphics_queue);
-    var present_queue: vulkan.VkQueue = undefined;
-    vulkan.vkGetDeviceQueue(logical_device, queue_family_indices.present_family.?, 0, &present_queue);
+    var graphics_queue = l0vk.vkGetDeviceQueue(logical_device, queue_family_indices.graphics_family.?, 0);
+    var present_queue = l0vk.vkGetDeviceQueue(logical_device, queue_family_indices.present_family.?, 0);
 
     // ---
 
@@ -306,22 +281,19 @@ pub fn deinit(self: *VulkanSystem, allocator_: std.mem.Allocator) void {
 
     self.support_details.deinit(allocator_);
 
-    vulkan.vkDestroyCommandPool(self.logical_device, self.command_pool, null);
+    l0vk.vkDestroyCommandPool(self.logical_device, self.command_pool, null);
 
-    vulkan.vkDestroyDevice(self.logical_device, null);
+    l0vk.vkDestroyDevice(self.logical_device, null);
 
     if (enable_validation_layers) {
         self.debug_messenger.?.deinit();
     }
 
-    vulkan.vkDestroyInstance(self.instance, null);
+    l0vk.vkDestroyInstance(self.instance, null);
 }
 
 pub fn prep_for_deinit(self: *VulkanSystem) void {
-    var result = vulkan.vkDeviceWaitIdle(self.logical_device);
-    if (result != vulkan.VK_SUCCESS) {
-        unreachable;
-    }
+    l0vk.vkDeviceWaitIdle(self.logical_device) catch unreachable;
 }
 
 // --- Instance {{{1
@@ -434,12 +406,10 @@ fn check_validation_layer_support(allocator_: std.mem.Allocator) !bool {
 // --- }}}1
 
 pub fn create_surface(instance: l0vk.VkInstance, window: *glfw.GLFWwindow) VulkanError!l0vk.VkSurfaceKHR {
-    var surface: vulkan.VkSurfaceKHR = null;
+    var surface: l0vk.VkSurfaceKHR = null;
 
     const result = glfw.glfwCreateWindowSurface(@ptrCast(instance), window, null, @ptrCast(&surface));
-    if (result != vulkan.VK_SUCCESS) {
-        return VulkanError.surface_creation_failed;
-    }
+    _ = result; // todo
 
     return surface;
 }
@@ -622,7 +592,7 @@ fn create_logical_device(
     physical_device: l0vk.VkPhysicalDevice,
     allocator_: std.mem.Allocator,
     surface: l0vk.VkSurfaceKHR,
-) !vulkan.VkDevice {
+) !l0vk.VkDevice {
     const queue_family_indices = try find_queue_families(
         physical_device,
         allocator_,
@@ -730,7 +700,7 @@ pub const SwapchainSettings = struct {
     // Right now, we only support up to two distinct queue families,
     // which should only be the case if the graphics and present
     // queues are distinct.
-    image_sharing_mode: vulkan.VkSharingMode,
+    image_sharing_mode: l0vk.VkSharingMode,
     queue_family_index_count: u32,
     queue_family_indices: [2]u32,
 
@@ -745,11 +715,15 @@ pub const SwapchainSettings = struct {
 /// objects are created with the same attributes, for example.
 pub fn query_swapchain_settings(
     allocator_: std.mem.Allocator,
-    physical_device: vulkan.VkPhysicalDevice,
-    logical_device: vulkan.VkDevice,
-    surface: vulkan.VkSurfaceKHR,
+    physical_device: l0vk.VkPhysicalDevice,
+    logical_device: l0vk.VkDevice,
+    surface: l0vk.VkSurfaceKHR,
 ) !SwapchainSettings {
-    var swap_chain_support = try SwapchainSupportDetails.init(allocator_, physical_device, surface);
+    var swap_chain_support = try SwapchainSupportDetails.init(
+        allocator_,
+        physical_device,
+        surface,
+    );
     defer swap_chain_support.deinit(allocator_);
 
     const surface_format = choose_swap_surface_format(swap_chain_support.formats);
@@ -763,16 +737,16 @@ pub fn query_swapchain_settings(
         image_count = swap_chain_support.capabilities.maxImageCount;
     }
 
-    var image_sharing_mode: vulkan.VkSharingMode = undefined;
+    var image_sharing_mode: l0vk.VkSharingMode = undefined;
     var queue_family_index_count: u32 = undefined;
     const indices = try find_queue_families(physical_device, allocator_, surface);
     const queue_family_indices = [_]u32{ indices.graphics_family.?, indices.present_family.? };
     if (indices.graphics_family != indices.present_family) {
-        image_sharing_mode = vulkan.VK_SHARING_MODE_CONCURRENT;
+        image_sharing_mode = .concurrent;
         // i.e. the graphics and present queues are distinct.
         queue_family_index_count = 2;
     } else {
-        image_sharing_mode = vulkan.VK_SHARING_MODE_EXCLUSIVE;
+        image_sharing_mode = .exclusive;
         queue_family_index_count = 0;
     }
 
@@ -846,28 +820,24 @@ fn choose_swap_extent(capabilities: l0vk.VkSurfaceCapabilitiesKHR) l0vk.VkExtent
 
 fn create_command_pool(
     allocator_: std.mem.Allocator,
-    physical_device: vulkan.VkPhysicalDevice,
-    logical_device: vulkan.VkDevice,
-    surface: vulkan.VkSurfaceKHR,
-) !vulkan.VkCommandPool {
-    const queue_family_indices = try find_queue_families(physical_device, allocator_, surface);
+    physical_device: l0vk.VkPhysicalDevice,
+    logical_device: l0vk.VkDevice,
+    surface: l0vk.VkSurfaceKHR,
+) !l0vk.VkCommandPool {
+    const queue_family_indices = try find_queue_families(
+        physical_device,
+        allocator_,
+        surface,
+    );
 
-    const pool_info = vulkan.VkCommandPoolCreateInfo{
-        .sType = vulkan.VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+    const pool_info = l0vk.VkCommandPoolCreateInfo{
         .queueFamilyIndex = queue_family_indices.graphics_family.?,
-        .flags = vulkan.VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+        .flags = .{
+            .reset_command_buffer = true,
+        },
         .pNext = null,
     };
-
-    var command_pool: vulkan.VkCommandPool = undefined;
-    const result = vulkan.vkCreateCommandPool(logical_device, &pool_info, null, &command_pool);
-    if (result != vulkan.VK_SUCCESS) {
-        switch (result) {
-            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
-            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
-            else => unreachable,
-        }
-    }
+    const command_pool = try l0vk.vkCreateCommandPool(logical_device, &pool_info, null);
 
     return command_pool;
 }
@@ -888,70 +858,54 @@ pub fn handle_swapchain_resize_for_renderpasses(self: *VulkanSystem, window: *Wi
 
 // ---
 
-pub fn begin_command_buffer(self: *VulkanSystem, command_buffer: vulkan.VkCommandBuffer) !void {
+pub fn begin_command_buffer(self: *VulkanSystem, command_buffer: l0vk.VkCommandBuffer) !void {
     _ = self;
-    const begin_info = vulkan.VkCommandBufferBeginInfo{
-        .sType = vulkan.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        .flags = 0,
-        .pInheritanceInfo = null,
-        .pNext = null,
-    };
 
-    var result = vulkan.vkBeginCommandBuffer(command_buffer, &begin_info);
-    if (result != vulkan.VK_SUCCESS) {
-        unreachable;
-    }
+    const begin_info = l0vk.VkCommandBufferBeginInfo{};
+    try l0vk.vkBeginCommandBuffer(command_buffer, &begin_info);
 }
 
-pub fn end_command_buffer(self: *VulkanSystem, command_buffer: vulkan.VkCommandBuffer) !void {
+pub fn end_command_buffer(self: *VulkanSystem, command_buffer: l0vk.VkCommandBuffer) !void {
     _ = self;
-    var result = vulkan.vkEndCommandBuffer(command_buffer);
-    if (result != vulkan.VK_SUCCESS) {
-        unreachable;
-    }
+    try l0vk.vkEndCommandBuffer(command_buffer);
 }
 
 pub fn submit_command_buffer(
     self: *VulkanSystem,
-    p_command_buffer: *vulkan.VkCommandBuffer,
+    p_command_buffer: *l0vk.VkCommandBuffer,
     wait_semaphore: SemaphoreHandle,
     signal_semaphore: SemaphoreHandle,
     fence: ?FenceHandle,
 ) !void {
-    const wait_semaphores = [_]vulkan.VkSemaphore{
+    var wait_semaphores = [_]l0vk.VkSemaphore{
         self.sync_system.get_semaphore_from_handle(wait_semaphore).*,
     };
-    const wait_stages = [_]vulkan.VkPipelineStageFlags{
-        vulkan.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+    var wait_stages = l0vk.VkPipelineStageFlags{
+        .color_attachment_output = true,
     };
-    const signal_semaphores = [_]vulkan.VkSemaphore{
+    var signal_semaphores = [_]l0vk.VkSemaphore{
         self.sync_system.get_semaphore_from_handle(signal_semaphore).*,
     };
-
-    const submit_info = vulkan.VkSubmitInfo{
-        .sType = vulkan.VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .waitSemaphoreCount = wait_semaphores.len,
-        .pWaitSemaphores = wait_semaphores[0..].ptr,
-        .pWaitDstStageMask = wait_stages[0..].ptr,
-        .commandBufferCount = 1,
-        .pCommandBuffers = p_command_buffer,
-        .signalSemaphoreCount = signal_semaphores.len,
-        .pSignalSemaphores = signal_semaphores[0..].ptr,
-
-        .pNext = null,
+    var command_buffers = [_]l0vk.VkCommandBuffer{
+        p_command_buffer.*,
     };
 
-    var submit_fence: vulkan.VkFence = null;
+    const submit_info = l0vk.VkSubmitInfo{
+        .waitSemaphores = &wait_semaphores,
+        .pWaitDstStageMask = &wait_stages,
+        .commandBuffers = &command_buffers,
+        .signalSemaphores = &signal_semaphores,
+    };
+
+    var submit_fence: l0vk.VkFence = null;
     if (fence != null) {
         submit_fence = self.sync_system.get_fence_from_handle(fence.?).*;
     }
-    var result = vulkan.vkQueueSubmit(
+
+    try l0vk.vkQueueSubmit(
         self.graphics_queue,
         1,
         &submit_info,
         submit_fence,
     );
-    if (result != vulkan.VK_SUCCESS) {
-        unreachable;
-    }
 }

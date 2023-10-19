@@ -172,7 +172,7 @@ fn create_swapchain(
         .imageArrayLayers = 1,
         .imageUsage = vulkan.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
 
-        .imageSharingMode = swapchain_settings.image_sharing_mode,
+        .imageSharingMode = @intFromEnum(swapchain_settings.image_sharing_mode),
         .queueFamilyIndexCount = swapchain_settings.queue_family_index_count,
         .pQueueFamilyIndices = swapchain_settings.queue_family_indices[0..].ptr,
         .preTransform = @intFromEnum(swapchain_settings.capabilities.currentTransform),

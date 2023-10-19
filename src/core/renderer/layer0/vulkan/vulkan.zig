@@ -149,6 +149,7 @@ pub const VkApplicationInfo = struct {
 };
 
 pub const ExtensionNames = struct {
+    pub const khr_swapchain = vulkan.VK_KHR_SWAPCHAIN_EXTENSION_NAME;
     pub const VK_EXT_DEBUG_UTILS = vulkan.VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
     pub const VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2 = vulkan.VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME;
     pub const VK_KHR_PORTABILITY_ENUMERATION = vulkan.VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME;
@@ -224,6 +225,13 @@ pub fn vkCreateInstance(
     }
 
     return instance;
+}
+
+pub inline fn vkDestroyInstance(
+    instance: VkInstance,
+    pAllocator: ?*const VkAllocationCallbacks,
+) void {
+    vulkan.vkDestroyInstance(instance, pAllocator);
 }
 
 // ---
@@ -894,7 +902,37 @@ pub fn vkCreateDevice(
     return logical_device;
 }
 
+pub inline fn vkDestroyDevice(device: VkDevice, pAllocator: ?*const VkAllocationCallbacks) void {
+    vulkan.vkDestroyDevice(device, pAllocator);
+}
+
+pub const vkDeviceWaitIdleError = error{
+    VK_ERROR_OUT_OF_HOST_MEMORY,
+    VK_ERROR_OUT_OF_DEVICE_MEMORY,
+    VK_ERROR_DEVICE_LOST,
+};
+
+pub fn vkDeviceWaitIdle(device: VkDevice) vkDeviceWaitIdleError!void {
+    const result = vulkan.vkDeviceWaitIdle(device);
+    if (result != vulkan.VK_SUCCESS) {
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return vkDeviceWaitIdleError.VK_ERROR_OUT_OF_HOST_MEMORY,
+            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return vkDeviceWaitIdleError.VK_ERROR_OUT_OF_DEVICE_MEMORY,
+            vulkan.VK_ERROR_DEVICE_LOST => return vkDeviceWaitIdleError.VK_ERROR_DEVICE_LOST,
+            else => unreachable,
+        }
+    }
+}
+
 // ---
+
+pub inline fn vkDestroySurfaceKHR(
+    instance: VkInstance,
+    surface: VkSurfaceKHR,
+    pAllocator: ?*const VkAllocationCallbacks,
+) void {
+    vulkan.vkDestroySurfaceKHR(instance, surface, pAllocator);
+}
 
 pub const VkSurfaceTransformFlagsKHR = packed struct(u32) {
     identity: bool = false,
@@ -1673,4 +1711,499 @@ pub fn vkGetPhysicalDeviceSurfacePresentModesKHR(
     }
 
     return to_return;
+}
+
+pub const VkSharingMode = enum(c_uint) {
+    exclusive = 0,
+    concurrent = 1,
+
+    max_enum = 2147483647,
+};
+
+// ---
+
+pub const VkCommandPoolCreateFlags = packed struct(u32) {
+    transient: bool = false,
+    reset_command_buffer: bool = false,
+    // Provided by VK_VERSION_1_1
+    protected: bool = false,
+    _: u1 = 0,
+
+    _a: u28 = 0,
+
+    pub const Bits = enum(c_uint) {
+        transient = 0x00000001,
+        reset_command_buffer = 0x00000002,
+        // Provided by VK_VERSION_1_1
+        protected = 0x00000004,
+    };
+};
+
+pub const VkCommandPoolCreateInfo = struct {
+    pNext: ?*const anyopaque = null,
+    flags: VkCommandPoolCreateFlags = .{},
+    queueFamilyIndex: u32 = 0,
+
+    fn to_vulkan_ty(self: VkCommandPoolCreateInfo) vulkan.VkCommandPoolCreateInfo {
+        return .{
+            .sType = vulkan.VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+            .pNext = self.pNext,
+            .flags = @bitCast(self.flags),
+            .queueFamilyIndex = self.queueFamilyIndex,
+        };
+    }
+};
+
+pub const VkCommandPool = vulkan.VkCommandPool;
+
+pub const vkCreateCommandPoolError = error{
+    VK_ERROR_OUT_OF_HOST_MEMORY,
+    VK_ERROR_OUT_OF_DEVICE_MEMORY,
+};
+
+pub fn vkCreateCommandPool(
+    device: VkDevice,
+    pCreateInfo: *const VkCommandPoolCreateInfo,
+    pAllactor: ?*const VkAllocationCallbacks,
+) vkCreateCommandPoolError!VkCommandPool {
+    var pool_info = pCreateInfo.to_vulkan_ty();
+
+    var command_pool: vulkan.VkCommandPool = undefined;
+    const result = vulkan.vkCreateCommandPool(
+        device,
+        &pool_info,
+        pAllactor,
+        &command_pool,
+    );
+    if (result != vulkan.VK_SUCCESS) {
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return vkCreateCommandPoolError.VK_ERROR_OUT_OF_HOST_MEMORY,
+            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return vkCreateCommandPoolError.VK_ERROR_OUT_OF_DEVICE_MEMORY,
+            else => unreachable,
+        }
+    }
+
+    return command_pool;
+}
+
+pub inline fn vkDestroyCommandPool(
+    device: VkDevice,
+    commandPool: VkCommandPool,
+    pAllocator: ?*const VkAllocationCallbacks,
+) void {
+    vulkan.vkDestroyCommandPool(device, commandPool, pAllocator);
+}
+
+pub const VkCommandBufferUsageFlags = packed struct(u32) {
+    one_time_submit: bool = false,
+    render_pass_continue: bool = false,
+    simultaneous_use: bool = false,
+    _: u1 = 0,
+
+    _a: u28 = 0,
+
+    pub const Bits = enum(c_uint) {
+        one_time_submit = 0x00000001,
+        render_pass_continue = 0x00000002,
+        simultaneous_use = 0x00000004,
+    };
+};
+
+pub const VkQueryControlFlags = packed struct(u32) {
+    precise: bool = false,
+    _: u3 = 0,
+
+    _a: u28 = 0,
+
+    pub const Bits = enum(c_uint) {
+        precise = 0x00000001,
+    };
+};
+
+pub const VkQueryPipelineStatisticFlags = packed struct(u32) {
+    input_assembly_vertices: bool = false,
+    input_assembly_primitives: bool = false,
+    vertex_shader_invocations: bool = false,
+    geometry_shader_invocations: bool = false,
+
+    geometry_shader_primitives: bool = false,
+    clipping_invocations: bool = false,
+    clipping_primitives: bool = false,
+    fragment_shader_invocations: bool = false,
+
+    tessellation_control_shader_patches: bool = false,
+    tessellation_evaluation_shader_invocations: bool = false,
+    compute_shader_invocations: bool = false,
+    _: u1 = 0,
+
+    _a: u20 = 0,
+
+    pub const Bits = enum(c_uint) {
+        input_assembly_vertices = 0x00000001,
+        input_assembly_primitives = 0x00000002,
+        vertex_shader_invocations = 0x00000004,
+        geometry_shader_invocations = 0x00000008,
+
+        geometry_shader_primitives = 0x00000010,
+        clipping_invocations = 0x00000020,
+        clipping_primitives = 0x00000040,
+        fragment_shader_invocations = 0x00000080,
+
+        tessellation_control_shader_patches = 0x00000100,
+        tessellation_evaluation_shader_invocations = 0x00000200,
+        compute_shader_invocations = 0x00000400,
+    };
+};
+
+pub const VkCommandBufferInheritanceInfo = struct {
+    pNext: ?*const anyopaque = null,
+    renderPass: VkRenderPass,
+    subpass: u32,
+    framebuffer: VkFramebuffer,
+    occlusionQueryEnable: bool,
+    queryFlags: VkQueryControlFlags = .{},
+    pipelineStatistics: VkQueryPipelineStatisticFlags = .{},
+
+    fn to_vulkan_ty(self: VkCommandBufferInheritanceInfo) vulkan.VkCommandBufferInheritanceInfo {
+        return .{
+            .sType = vulkan.VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO,
+            .pNext = self.pNext,
+            .renderPass = self.renderPass,
+            .subpass = self.subpass,
+            .framebuffer = self.framebuffer,
+            .occlusionQueryEnable = @intFromBool(self.occlusionQueryEnable),
+            .queryFlags = @bitCast(self.queryFlags),
+            .pipelineStatistics = @bitCast(self.pipelineStatistics),
+        };
+    }
+};
+
+pub const VkCommandBufferBeginInfo = struct {
+    pNext: ?*const anyopaque = null,
+    flags: VkCommandBufferUsageFlags = .{},
+    pInheritanceInfo: ?*const VkCommandBufferInheritanceInfo = null,
+
+    fn to_vulkan_ty(self: *const VkCommandBufferBeginInfo) vulkan.VkCommandBufferBeginInfo {
+        var inheritance_info: vulkan.VkCommandBufferInheritanceInfo = undefined;
+        var p_inheritance_info: ?*const vulkan.VkCommandBufferInheritanceInfo = null;
+        if (self.pInheritanceInfo) |info| {
+            inheritance_info = info.to_vulkan_ty();
+            p_inheritance_info = &inheritance_info;
+        }
+
+        return .{
+            .sType = vulkan.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            .pNext = self.pNext,
+            .flags = @bitCast(self.flags),
+            .pInheritanceInfo = p_inheritance_info,
+        };
+    }
+};
+
+pub const VkCommandBuffer = vulkan.VkCommandBuffer;
+
+pub const vkBeginCommandBufferError = error{
+    VK_ERROR_OUT_OF_HOST_MEMORY,
+    VK_ERROR_OUT_OF_DEVICE_MEMORY,
+};
+
+pub fn vkBeginCommandBuffer(
+    commandBuffer: VkCommandBuffer,
+    pBeginInfo: *const VkCommandBufferBeginInfo,
+) vkBeginCommandBufferError!void {
+    const begin_info = pBeginInfo.to_vulkan_ty();
+    var result = vulkan.vkBeginCommandBuffer(commandBuffer, &begin_info);
+    if (result != vulkan.VK_SUCCESS) {
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return vkBeginCommandBufferError.VK_ERROR_OUT_OF_HOST_MEMORY,
+            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return vkBeginCommandBufferError.VK_ERROR_OUT_OF_DEVICE_MEMORY,
+            else => unreachable,
+        }
+    }
+}
+
+pub const vkEndCommandBufferError = error{
+    VK_ERROR_OUT_OF_HOST_MEMORY,
+    VK_ERROR_OUT_OF_DEVICE_MEMORY,
+};
+
+pub fn vkEndCommandBuffer(command_buffer: VkCommandBuffer) !void {
+    var result = vulkan.vkEndCommandBuffer(command_buffer);
+    if (result != vulkan.VK_SUCCESS) {
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return vkEndCommandBufferError.VK_ERROR_OUT_OF_HOST_MEMORY,
+            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return vkEndCommandBufferError.VK_ERROR_OUT_OF_DEVICE_MEMORY,
+            else => unreachable,
+        }
+    }
+}
+
+pub const VkSubmitInfo = struct {
+    pNext: ?*const anyopaque = null,
+    waitSemaphores: []VkSemaphore,
+    pWaitDstStageMask: *const VkPipelineStageFlags,
+    commandBuffers: []VkCommandBuffer,
+    signalSemaphores: []VkSemaphore,
+
+    pub fn to_vulkan_ty(self: *const VkSubmitInfo) vulkan.VkSubmitInfo {
+        const mask: vulkan.VkPipelineStageFlags = @bitCast(self.pWaitDstStageMask.*);
+
+        return .{
+            .sType = vulkan.VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .pNext = self.pNext,
+            .waitSemaphoreCount = @intCast(self.waitSemaphores.len),
+            .pWaitSemaphores = self.waitSemaphores.ptr,
+            .pWaitDstStageMask = &mask,
+            .commandBufferCount = @intCast(self.commandBuffers.len),
+            .pCommandBuffers = self.commandBuffers.ptr,
+            .signalSemaphoreCount = @intCast(self.signalSemaphores.len),
+            .pSignalSemaphores = self.signalSemaphores.ptr,
+        };
+    }
+};
+
+pub const vkQueueSubmitError = error{
+    VK_ERROR_OUT_OF_HOST_MEMORY,
+    VK_ERROR_OUT_OF_DEVICE_MEMORY,
+    VK_ERROR_DEVICE_LOST,
+};
+
+pub const VkQueue = vulkan.VkQueue;
+
+pub fn vkQueueSubmit(
+    queue: VkQueue,
+    submitCount: u32,
+    pSubmits: *const VkSubmitInfo,
+    fence: VkFence,
+) vkQueueSubmitError!void {
+    const submits = pSubmits.to_vulkan_ty();
+
+    var result = vulkan.vkQueueSubmit(
+        queue,
+        submitCount,
+        &submits,
+        fence,
+    );
+    if (result != vulkan.VK_SUCCESS) {
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return vkQueueSubmitError.VK_ERROR_OUT_OF_HOST_MEMORY,
+            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return vkQueueSubmitError.VK_ERROR_OUT_OF_DEVICE_MEMORY,
+            vulkan.VK_ERROR_DEVICE_LOST => return vkQueueSubmitError.VK_ERROR_DEVICE_LOST,
+            else => unreachable,
+        }
+    }
+}
+
+// ---
+
+pub const VkRenderPass = vulkan.VkRenderPass;
+
+pub const VkFramebuffer = vulkan.VkFramebuffer;
+
+// --- sync
+
+pub const VkSemaphore = vulkan.VkSemaphore;
+
+pub const VkSemaphoreCreateFlags = packed struct(u32) {
+    _: u32 = 0,
+};
+
+pub const VkSemaphoreCreateInfo = extern struct {
+    pNext: ?*const anyopaque = null,
+    flags: VkSemaphoreCreateFlags = .{},
+
+    pub fn to_vulkan_ty(self: *const VkSemaphoreCreateInfo) vulkan.VkSemaphoreCreateInfo {
+        return .{
+            .sType = vulkan.VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+            .pNext = self.pNext,
+            .flags = @bitCast(self.flags),
+        };
+    }
+};
+
+pub const vkCreateSemaphoreError = error{
+    VK_ERROR_OUT_OF_HOST_MEMORY,
+    VK_ERROR_OUT_OF_DEVICE_MEMORY,
+};
+
+pub fn vkCreateSemaphore(
+    device: VkDevice,
+    pCreateInfo: *const VkSemaphoreCreateInfo,
+    pAllocator: ?*const VkAllocationCallbacks,
+) vkCreateSemaphoreError!VkSemaphore {
+    var create_info = pCreateInfo.to_vulkan_ty();
+
+    var semaphore: vulkan.VkSemaphore = undefined;
+    var result = vulkan.vkCreateSemaphore(
+        device,
+        &create_info,
+        pAllocator,
+        &semaphore,
+    );
+    if (result != vulkan.VK_SUCCESS) {
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return vkCreateSemaphoreError.VK_ERROR_OUT_OF_HOST_MEMORY,
+            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return vkCreateSemaphoreError.VK_ERROR_OUT_OF_DEVICE_MEMORY,
+            else => unreachable,
+        }
+    }
+
+    return semaphore;
+}
+
+pub inline fn vkDestroySemaphore(
+    device: VkDevice,
+    semaphore: VkSemaphore,
+    pAllocator: ?*const VkAllocationCallbacks,
+) void {
+    vulkan.vkDestroySemaphore(device, semaphore, pAllocator);
+}
+
+pub const VkFence = vulkan.VkFence;
+
+pub const VkFenceCreateFlags = packed struct(u32) {
+    signaled: bool = false,
+    _: u3 = 0,
+
+    _a: u28 = 0,
+
+    pub const Bits = enum(c_uint) {
+        signaled = 0x00000001,
+    };
+};
+
+pub const VkFenceCreateInfo = struct {
+    pNext: ?*const anyopaque = null,
+    flags: VkFenceCreateFlags = .{},
+
+    pub fn to_vulkan_ty(self: *const VkFenceCreateInfo) vulkan.VkFenceCreateInfo {
+        return .{
+            .sType = vulkan.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+            .pNext = self.pNext,
+            .flags = @bitCast(self.flags),
+        };
+    }
+};
+
+pub const vkCreateFenceError = error{
+    VK_ERROR_OUT_OF_HOST_MEMORY,
+    VK_ERROR_OUT_OF_DEVICE_MEMORY,
+};
+
+pub fn vkCreateFence(
+    device: VkDevice,
+    pCreateInfo: *const VkFenceCreateInfo,
+    pAllocator: ?*const VkAllocationCallbacks,
+) vkCreateFenceError!VkFence {
+    var create_info = pCreateInfo.to_vulkan_ty();
+
+    var fence: vulkan.VkFence = undefined;
+    var result = vulkan.vkCreateFence(
+        device,
+        &create_info,
+        pAllocator,
+        &fence,
+    );
+    if (result != vulkan.VK_SUCCESS) {
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return vkCreateFenceError.VK_ERROR_OUT_OF_HOST_MEMORY,
+            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return vkCreateFenceError.VK_ERROR_OUT_OF_DEVICE_MEMORY,
+            else => unreachable,
+        }
+    }
+
+    return fence;
+}
+
+pub inline fn vkDestroyFence(
+    device: VkDevice,
+    fence: VkFence,
+    pAllocator: ?*const VkAllocationCallbacks,
+) void {
+    vulkan.vkDestroyFence(device, fence, pAllocator);
+}
+
+// --- pipeline
+
+pub const VkPipelineStageFlags = packed struct(u32) {
+    top_of_pipe: bool = false,
+    draw_indirect: bool = false,
+    vertex_input: bool = false,
+    vertex_shader: bool = false,
+
+    tessellation_control_shader: bool = false,
+    tessellation_evaluation_shader: bool = false,
+    geometry_shader: bool = false,
+    fragment_shader: bool = false,
+
+    early_fragment_tests: bool = false,
+    late_fragment_tests: bool = false,
+    color_attachment_output: bool = false,
+    compute_shader: bool = false,
+
+    transfer: bool = false,
+    bottom_of_pipe: bool = false,
+    host: bool = false,
+    all_graphics: bool = false,
+
+    all_commands: bool = false,
+    command_preprocess_nv: bool = false,
+    conditional_rendering_ext: bool = false,
+    task_shader_ext: bool = false,
+
+    mesh_shader_ext: bool = false,
+    ray_tracing_shader_khr: bool = false,
+    fragment_shading_rate_attachment_khr: bool = false,
+    fragment_density_process_ext: bool = false,
+
+    transform_feedback_ext: bool = false,
+    acceleration_structure_build_khr: bool = false,
+    _: u2 = 0,
+
+    _a: u4 = 0,
+
+    pub const Bits = enum(c_uint) {
+        top_of_pipe = 0x00000001,
+        draw_indirect = 0x00000002,
+        vertex_input = 0x00000004,
+        vertex_shader = 0x00000008,
+
+        tessellation_control_shader = 0x00000010,
+        tessellation_evaluation_shader = 0x00000020,
+        geometry_shader = 0x00000040,
+        fragment_shader = 0x00000080,
+
+        early_fragment_tests = 0x00000100,
+        late_fragment_tests = 0x00000200,
+        color_attachment_output = 0x00000400,
+        compute_shader = 0x00000800,
+
+        transfer = 0x00001000,
+        bottom_of_pipe = 0x00002000,
+        host = 0x00004000,
+        all_graphics = 0x00008000,
+
+        all_commands = 0x00010000,
+        command_preprocess_nv = 0x00020000,
+        conditional_rendering_ext = 0x00040000,
+        task_shader_ext = 0x00080000,
+
+        mesh_shader_ext = 0x00100000,
+        ray_tracing_shader_khr = 0x00200000,
+        fragment_shading_rate_attachment_khr = 0x00400000,
+        fragment_density_process_ext = 0x00800000,
+
+        transform_feedback_ext = 0x01000000,
+        acceleration_structure_build_khr = 0x02000000,
+    };
+};
+
+pub fn vkGetDeviceQueue(
+    device: VkDevice,
+    queueFamilyIndex: u32,
+    queueIndex: u32,
+) VkQueue {
+    var queue: VkQueue = undefined;
+    vulkan.vkGetDeviceQueue(device, queueFamilyIndex, queueIndex, &queue);
+    return queue;
 }
