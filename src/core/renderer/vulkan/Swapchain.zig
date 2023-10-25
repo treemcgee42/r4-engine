@@ -1,6 +1,5 @@
 const std = @import("std");
 const glfw = @import("glfw");
-const vulkan = @import("vulkan");
 const VulkanError = @import("./VulkanSystem.zig").VulkanError;
 const SwapchainSettings = @import("./VulkanSystem.zig").SwapchainSettings;
 pub const query_swapchain_settings = @import("./VulkanSystem.zig").query_swapchain_settings;
@@ -9,14 +8,15 @@ const RenderPass = @import("./RenderPass.zig");
 const VulkanSystem = @import("./VulkanSystem.zig");
 const SemaphoreHandle = VulkanSystem.SemaphoreHandle;
 const FenceHandle = VulkanSystem.FenceHandle;
+const l0vk = @import("../layer0/vulkan/vulkan.zig");
 
 const Swapchain = @This();
 
-swapchain: vulkan.VkSwapchainKHR,
-swapchain_images: []vulkan.VkImage,
-swapchain_image_format: vulkan.VkFormat,
-swapchain_extent: vulkan.VkExtent2D,
-swapchain_image_views: []vulkan.VkImageView,
+swapchain: l0vk.VkSwapchainKHR,
+swapchain_images: []l0vk.VkImage,
+swapchain_image_format: l0vk.VkFormat,
+swapchain_extent: l0vk.VkExtent2D,
+swapchain_image_views: []l0vk.VkImageView,
 
 image_available_semaphores: []SemaphoreHandle,
 a_semaphores: []SemaphoreHandle,
@@ -24,14 +24,14 @@ b_semaphores: []SemaphoreHandle,
 render_finished_semaphores: []SemaphoreHandle,
 in_flight_fences: []FenceHandle,
 
-a_command_buffers: []vulkan.VkCommandBuffer,
-b_command_buffers: []vulkan.VkCommandBuffer,
+a_command_buffers: []l0vk.VkCommandBuffer,
+b_command_buffers: []l0vk.VkCommandBuffer,
 
 current_frame: usize = 0,
 
 pub const max_frames_in_flight: usize = 2;
 
-pub fn init(allocator: std.mem.Allocator, system: *VulkanSystem, surface: vulkan.VkSurfaceKHR) !Swapchain {
+pub fn init(allocator: std.mem.Allocator, system: *VulkanSystem, surface: l0vk.VkSurfaceKHR) !Swapchain {
     const swapchain_settings = try query_swapchain_settings(
         allocator,
         system.physical_device,
@@ -94,11 +94,11 @@ pub fn deinit(self: Swapchain, allocator: std.mem.Allocator, system: *VulkanSyst
 
     var i: usize = 0;
     while (i < self.swapchain_image_views.len) : (i += 1) {
-        vulkan.vkDestroyImageView(system.logical_device, self.swapchain_image_views[i], null);
+        l0vk.vkDestroyImageView(system.logical_device, self.swapchain_image_views[i], null);
     }
     allocator.free(self.swapchain_image_views);
     allocator.free(self.swapchain_images);
-    vulkan.vkDestroySwapchainKHR(system.logical_device, self.swapchain, null);
+    l0vk.vkDestroySwapchainKHR(system.logical_device, self.swapchain, null);
 }
 
 pub fn recreate_swapchain(
@@ -107,7 +107,7 @@ pub fn recreate_swapchain(
     system: *VulkanSystem,
     swapchain_settings: SwapchainSettings,
     window: *glfw.GLFWwindow,
-) VulkanError!void {
+) !void {
     var width: c_int = 0;
     var height: c_int = 0;
     glfw.glfwGetFramebufferSize(window, &width, &height);
@@ -116,20 +116,17 @@ pub fn recreate_swapchain(
         glfw.glfwWaitEvents();
     }
 
-    var result = vulkan.vkDeviceWaitIdle(system.logical_device);
-    if (result != vulkan.VK_SUCCESS) {
-        unreachable;
-    }
+    try l0vk.vkDeviceWaitIdle(system.logical_device);
 
     // --- Cleanup.
 
     var i: usize = 0;
     while (i < self.swapchain_image_views.len) : (i += 1) {
-        vulkan.vkDestroyImageView(system.logical_device, self.swapchain_image_views[i], null);
+        l0vk.vkDestroyImageView(system.logical_device, self.swapchain_image_views[i], null);
     }
     allocator.free(self.swapchain_image_views);
     allocator.free(self.swapchain_images);
-    vulkan.vkDestroySwapchainKHR(system.logical_device, self.swapchain, null);
+    l0vk.vkDestroySwapchainKHR(system.logical_device, self.swapchain, null);
 
     // ---
 
@@ -152,119 +149,90 @@ pub fn recreate_swapchain(
 }
 
 const CreateSwapchainReturnType = struct {
-    swapchain: vulkan.VkSwapchainKHR,
-    images: []vulkan.VkImage,
-    image_format: vulkan.VkFormat,
-    extent: vulkan.VkExtent2D,
+    swapchain: l0vk.VkSwapchainKHR,
+    images: []l0vk.VkImage,
+    image_format: l0vk.VkFormat,
+    extent: l0vk.VkExtent2D,
 };
 
 fn create_swapchain(
     allocator_: std.mem.Allocator,
     swapchain_settings: SwapchainSettings,
-) VulkanError!CreateSwapchainReturnType {
-    var create_info: vulkan.VkSwapchainCreateInfoKHR = .{
-        .sType = vulkan.VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+) !CreateSwapchainReturnType {
+    const ci = l0vk.VkSwapchainCreateInfoKHR{
         .surface = swapchain_settings.surface,
+
         .minImageCount = swapchain_settings.min_image_count,
-        .imageFormat = @intFromEnum(swapchain_settings.surface_format.format),
-        .imageColorSpace = @intFromEnum(swapchain_settings.surface_format.colorSpace),
+        .imageFormat = swapchain_settings.surface_format.format,
+        .imageColorSpace = swapchain_settings.surface_format.colorSpace,
         .imageExtent = swapchain_settings.extent,
         .imageArrayLayers = 1,
-        .imageUsage = vulkan.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+        .imageUsage = l0vk.VkImageUsageFlags{
+            .color_attachment = true,
+        },
+        .imageSharingMode = swapchain_settings.image_sharing_mode,
 
-        .imageSharingMode = @intFromEnum(swapchain_settings.image_sharing_mode),
-        .queueFamilyIndexCount = swapchain_settings.queue_family_index_count,
-        .pQueueFamilyIndices = swapchain_settings.queue_family_indices[0..].ptr,
-        .preTransform = @intFromEnum(swapchain_settings.capabilities.currentTransform),
-        .compositeAlpha = vulkan.VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-        .presentMode = @intFromEnum(swapchain_settings.present_mode),
-        .clipped = vulkan.VK_TRUE,
-        .oldSwapchain = @ptrCast(vulkan.VK_NULL_HANDLE),
-        .pNext = null,
-        .flags = 0,
+        .queueFamilyIndices = swapchain_settings.queue_family_indices[0..],
+        .preTransform = swapchain_settings.capabilities.currentTransform,
+        .compositeAlpha = l0vk.VkCompositeAlphaFlagsKHR.Bits.opaque_,
+        .presentMode = swapchain_settings.present_mode,
+        .clipped = true,
     };
 
-    var swapchain: vulkan.VkSwapchainKHR = undefined;
-    var result = vulkan.vkCreateSwapchainKHR(swapchain_settings.logical_device, &create_info, null, &swapchain);
-    if (result != vulkan.VK_SUCCESS) {
-        switch (result) {
-            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
-            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
-            vulkan.VK_ERROR_DEVICE_LOST => return VulkanError.vk_error_device_lost,
-            vulkan.VK_ERROR_SURFACE_LOST_KHR => return VulkanError.vk_error_surface_lost_khr,
-            vulkan.VK_ERROR_NATIVE_WINDOW_IN_USE_KHR => return VulkanError.vk_error_native_window_in_use_khr,
-            vulkan.VK_ERROR_INITIALIZATION_FAILED => return VulkanError.vk_error_initialization_failed,
-            vulkan.VK_ERROR_COMPRESSION_EXHAUSTED_EXT => return VulkanError.vk_error_compression_exhausted_ext,
-            else => unreachable,
-        }
-    }
+    const swapchain = try l0vk.vkCreateSwapchainKHR(
+        swapchain_settings.logical_device,
+        &ci,
+        null,
+    );
 
-    var image_count = swapchain_settings.min_image_count;
-    result = vulkan.vkGetSwapchainImagesKHR(swapchain_settings.logical_device, swapchain, &image_count, null);
-    if (result != vulkan.VK_SUCCESS) {
-        unreachable;
-    }
-    var swapchain_images = try allocator_.alloc(vulkan.VkImage, image_count);
-    result = vulkan.vkGetSwapchainImagesKHR(swapchain_settings.logical_device, swapchain, &image_count, swapchain_images.ptr);
-    if (result != vulkan.VK_SUCCESS) {
-        switch (result) {
-            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
-            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
-            else => unreachable,
-        }
-    }
+    const swapchain_images = try l0vk.vkGetSwapchainImagesKHR(
+        allocator_,
+        swapchain_settings.logical_device,
+        swapchain,
+    );
 
     return .{
         .swapchain = swapchain,
         .images = swapchain_images,
-        .image_format = @intFromEnum(swapchain_settings.surface_format.format),
+        .image_format = swapchain_settings.surface_format.format,
         .extent = swapchain_settings.extent,
     };
 }
 
 fn create_image_views(
     allocator: std.mem.Allocator,
-    logical_device: vulkan.VkDevice,
-    images: []vulkan.VkImage,
-    image_format: vulkan.VkFormat,
-) VulkanError![]vulkan.VkImageView {
-    var image_views = try allocator.alloc(vulkan.VkImageView, images.len);
+    logical_device: l0vk.VkDevice,
+    images: []l0vk.VkImage,
+    image_format: l0vk.VkFormat,
+) ![]l0vk.VkImageView {
+    var image_views = try allocator.alloc(l0vk.VkImageView, images.len);
     errdefer allocator.free(image_views);
 
     var i: usize = 0;
-    var create_info: vulkan.VkImageViewCreateInfo = undefined;
+    var create_info: l0vk.VkImageViewCreateInfo = undefined;
     while (i < images.len) : (i += 1) {
-        create_info = .{
-            .sType = vulkan.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        create_info = l0vk.VkImageViewCreateInfo{
             .image = images[i],
-            .viewType = vulkan.VK_IMAGE_VIEW_TYPE_2D,
+            .viewType = .ty_2d,
             .format = image_format,
             .components = .{
-                .r = vulkan.VK_COMPONENT_SWIZZLE_IDENTITY,
-                .g = vulkan.VK_COMPONENT_SWIZZLE_IDENTITY,
-                .b = vulkan.VK_COMPONENT_SWIZZLE_IDENTITY,
-                .a = vulkan.VK_COMPONENT_SWIZZLE_IDENTITY,
+                .r = .identity,
+                .g = .identity,
+                .b = .identity,
+                .a = .identity,
             },
             .subresourceRange = .{
-                .aspectMask = vulkan.VK_IMAGE_ASPECT_COLOR_BIT,
+                .aspectMask = .{
+                    .color = true,
+                },
                 .baseMipLevel = 0,
                 .levelCount = 1,
                 .baseArrayLayer = 0,
                 .layerCount = 1,
             },
-            .pNext = null,
-            .flags = 0,
         };
 
-        var result = vulkan.vkCreateImageView(logical_device, &create_info, null, &image_views[i]);
-        if (result != vulkan.VK_SUCCESS) {
-            switch (result) {
-                vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
-                vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
-                vulkan.VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS_KHR => return VulkanError.vk_error_invalid_opaque_capture_address_khr,
-                else => unreachable,
-            }
-        }
+        image_views[i] = try l0vk.vkCreateImageView(logical_device, &create_info, null);
     }
 
     return image_views;
@@ -294,29 +262,20 @@ fn create_fences(system: *VulkanSystem) ![]FenceHandle {
     return fence_handles;
 }
 
-fn create_command_buffers(system: *VulkanSystem) VulkanError![]vulkan.VkCommandBuffer {
-    const command_buffers = try system.allocator.alloc(vulkan.VkCommandBuffer, max_frames_in_flight);
-    errdefer system.allocator.free(command_buffers);
-
-    const alloc_info = vulkan.VkCommandBufferAllocateInfo{
-        .sType = vulkan.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+fn create_command_buffers(system: *VulkanSystem) ![]l0vk.VkCommandBuffer {
+    const alloc_info = l0vk.VkCommandBufferAllocateInfo{
         .commandPool = system.command_pool,
-        .level = vulkan.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        .commandBufferCount = @intCast(command_buffers.len),
-
-        .pNext = null,
+        .level = .primary,
+        .commandBufferCount = @intCast(max_frames_in_flight),
     };
 
-    const result = vulkan.vkAllocateCommandBuffers(system.logical_device, &alloc_info, command_buffers.ptr);
-    if (result != vulkan.VK_SUCCESS) {
-        switch (result) {
-            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
-            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
-            else => unreachable,
-        }
-    }
+    const to_return = try l0vk.vkAllocateCommandBuffers(
+        system.allocator,
+        system.logical_device,
+        &alloc_info,
+    );
 
-    return command_buffers;
+    return to_return;
 }
 
 // ---

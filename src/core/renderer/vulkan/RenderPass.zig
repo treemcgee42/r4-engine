@@ -352,7 +352,7 @@ fn build_color_attachment(swapchain: *Swapchain, clear: bool) VulkanError!Attach
     }
 
     const color_attachment = vulkan.VkAttachmentDescription{
-        .format = swapchain.swapchain_image_format,
+        .format = @intFromEnum(swapchain.swapchain_image_format),
         // The top-level render pass doesn't need multisampling.
         .samples = 1,
         .loadOp = @intCast(loadOp),

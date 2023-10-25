@@ -1,3 +1,4 @@
+const std = @import("std");
 const vulkan = @import("vulkan");
 const l0vk = @import("./vulkan.zig");
 
@@ -169,4 +170,55 @@ pub fn vkEndCommandBuffer(command_buffer: VkCommandBuffer) !void {
             else => unreachable,
         }
     }
+}
+
+pub const VkCommandBufferLevel = enum(c_uint) {
+    primary = 0,
+    secondary = 1,
+};
+
+pub const VkCommandBufferAllocateInfo = struct {
+    pNext: ?*const anyopaque = null,
+    commandPool: VkCommandPool,
+    level: VkCommandBufferLevel,
+    commandBufferCount: u32,
+
+    pub fn to_vulkan_ty(self: *const VkCommandBufferAllocateInfo) vulkan.VkCommandBufferAllocateInfo {
+        return .{
+            .sType = vulkan.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+            .pNext = self.pNext,
+            .commandPool = self.commandPool,
+            .level = @intFromEnum(self.level),
+            .commandBufferCount = self.commandBufferCount,
+        };
+    }
+};
+
+pub const vkAllocateCommandBuffersError = error{
+    VK_ERROR_OUT_OF_HOST_MEMORY,
+    VK_ERROR_OUT_OF_DEVICE_MEMORY,
+
+    OutOfMemory,
+};
+
+pub fn vkAllocateCommandBuffers(
+    allocator: std.mem.Allocator,
+    device: l0vk.VkDevice,
+    pAllocateInfo: *const VkCommandBufferAllocateInfo,
+) vkAllocateCommandBuffersError![]VkCommandBuffer {
+    var command_buffers = try allocator.alloc(VkCommandBuffer, pAllocateInfo.commandBufferCount);
+    errdefer allocator.free(command_buffers);
+
+    const alloc_info = pAllocateInfo.to_vulkan_ty();
+
+    const result = vulkan.vkAllocateCommandBuffers(device, &alloc_info, command_buffers.ptr);
+    if (result != vulkan.VK_SUCCESS) {
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return vkAllocateCommandBuffersError.VK_ERROR_OUT_OF_HOST_MEMORY,
+            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return vkAllocateCommandBuffersError.VK_ERROR_OUT_OF_DEVICE_MEMORY,
+            else => unreachable,
+        }
+    }
+
+    return command_buffers;
 }
