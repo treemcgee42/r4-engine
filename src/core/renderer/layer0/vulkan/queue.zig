@@ -1,3 +1,4 @@
+const std = @import("std");
 const vulkan = @import("vulkan");
 const l0vk = @import("./vulkan.zig");
 
@@ -52,19 +53,23 @@ pub const VkQueueFamilyProperties = struct {
 pub const VkSubmitInfo = struct {
     pNext: ?*const anyopaque = null,
     waitSemaphores: []l0vk.VkSemaphore,
-    pWaitDstStageMask: *const l0vk.VkPipelineStageFlags,
-    commandBuffers: []l0vk.VkCommandBuffer,
+    pWaitDstStageMask: ?*const l0vk.VkPipelineStageFlags,
+    commandBuffers: []const l0vk.VkCommandBuffer,
     signalSemaphores: []l0vk.VkSemaphore,
 
-    pub fn to_vulkan_ty(self: *const VkSubmitInfo) vulkan.VkSubmitInfo {
-        const mask: vulkan.VkPipelineStageFlags = @bitCast(self.pWaitDstStageMask.*);
+    pub fn to_vulkan_ty(self: *const VkSubmitInfo, allocator: std.mem.Allocator) vulkan.VkSubmitInfo {
+        var p_wait_dst_stage_mask: ?*vulkan.VkPipelineStageFlags = null;
+        if (self.pWaitDstStageMask != null) {
+            p_wait_dst_stage_mask = allocator.create(vulkan.VkPipelineStageFlags) catch unreachable;
+            p_wait_dst_stage_mask.?.* = @bitCast(self.pWaitDstStageMask.?.*);
+        }
 
         return .{
             .sType = vulkan.VK_STRUCTURE_TYPE_SUBMIT_INFO,
             .pNext = self.pNext,
             .waitSemaphoreCount = @intCast(self.waitSemaphores.len),
             .pWaitSemaphores = self.waitSemaphores.ptr,
-            .pWaitDstStageMask = &mask,
+            .pWaitDstStageMask = p_wait_dst_stage_mask,
             .commandBufferCount = @intCast(self.commandBuffers.len),
             .pCommandBuffers = self.commandBuffers.ptr,
             .signalSemaphoreCount = @intCast(self.signalSemaphores.len),
@@ -87,7 +92,11 @@ pub fn vkQueueSubmit(
     pSubmits: *const VkSubmitInfo,
     fence: l0vk.VkFence,
 ) vkQueueSubmitError!void {
-    const submits = pSubmits.to_vulkan_ty();
+    var buffer: [1000]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buffer);
+    const allocator = fba.allocator();
+
+    const submits = pSubmits.to_vulkan_ty(allocator);
 
     var result = vulkan.vkQueueSubmit(
         queue,

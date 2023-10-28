@@ -108,3 +108,8 @@ pub const VkQueryPipelineStatisticFlags = packed struct(u32) {
         compute_shader_invocations = 0x00000400,
     };
 };
+
+pub const VkPipelineBindPoint = enum(c_uint) {
+    graphics = 0,
+    compute = 1,
+};

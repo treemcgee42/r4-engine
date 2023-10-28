@@ -24,7 +24,7 @@ present_queue: l0vk.VkQueue,
 
 command_pool: l0vk.VkCommandPool,
 
-max_usable_sample_count: l0vk.VkSampleCountFlagBits,
+max_usable_sample_count: l0vk.VkSampleCountFlags.Bits,
 
 pipeline_system: PipelineSystem,
 renderpass_system: RenderPassSystem,
@@ -558,7 +558,7 @@ fn check_device_extension_support(device: l0vk.VkPhysicalDevice, allocator_: std
     return found_exensions == device_extensions.len;
 }
 
-fn get_max_usable_sample_count(physical_device: l0vk.VkPhysicalDevice) VulkanError!l0vk.VkSampleCountFlagBits {
+fn get_max_usable_sample_count(physical_device: l0vk.VkPhysicalDevice) VulkanError!l0vk.VkSampleCountFlags.Bits {
     const physical_device_properties = l0vk.vkGetPhysicalDeviceProperties(physical_device);
     const counts: l0vk.VkSampleCountFlags = @bitCast(@as(u32, @bitCast(physical_device_properties.limits.framebufferColorSampleCounts)) & @as(u32, @bitCast(physical_device_properties.limits.framebufferDepthSampleCounts)));
 

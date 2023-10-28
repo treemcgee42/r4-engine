@@ -235,19 +235,19 @@ pub const VkSampleCountFlags = packed struct(u32) {
 
     _a: i24 = 0,
 
+    pub const Bits = enum(c_uint) {
+        VK_SAMPLE_COUNT_1_BIT = 1,
+        VK_SAMPLE_COUNT_2_BIT = 2,
+        VK_SAMPLE_COUNT_4_BIT = 4,
+        VK_SAMPLE_COUNT_8_BIT = 8,
+        VK_SAMPLE_COUNT_16_BIT = 16,
+        VK_SAMPLE_COUNT_32_BIT = 32,
+        VK_SAMPLE_COUNT_64_BIT = 64,
+    };
+
     pub fn to_vulkan_ty(self: VkSampleCountFlags) vulkan.VkSampleCountFlags {
         return @bitCast(self);
     }
-};
-
-pub const VkSampleCountFlagBits = enum(c_uint) {
-    VK_SAMPLE_COUNT_1_BIT = 1,
-    VK_SAMPLE_COUNT_2_BIT = 2,
-    VK_SAMPLE_COUNT_4_BIT = 4,
-    VK_SAMPLE_COUNT_8_BIT = 8,
-    VK_SAMPLE_COUNT_16_BIT = 16,
-    VK_SAMPLE_COUNT_32_BIT = 32,
-    VK_SAMPLE_COUNT_64_BIT = 64,
 };
 
 pub const VkDeviceSize = vulkan.VkDeviceSize;

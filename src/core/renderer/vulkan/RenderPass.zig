@@ -1,8 +1,7 @@
 const std = @import("std");
-const vulkan = @import("vulkan");
+const l0vk = @import("../layer0/vulkan/vulkan.zig");
 const Window = @import("../../Window.zig");
 const cimgui = @import("cimgui");
-const VulkanError = @import("./VulkanSystem.zig").VulkanError;
 const Swapchain = @import("./Swapchain.zig");
 const VulkanSystem = @import("./VulkanSystem.zig");
 const RenderPassInfo = @import("../RenderPass.zig").RenderPassInfo;
@@ -10,14 +9,14 @@ const buffer = @import("buffer.zig");
 
 const RenderPass = @This();
 
-render_pass: vulkan.VkRenderPass,
+render_pass: l0vk.VkRenderPass,
 
 images: []Image,
-framebuffers: []vulkan.VkFramebuffer,
+framebuffers: []l0vk.VkFramebuffer,
 render_area: RenderArea,
 
 imgui_enabled: bool,
-imgui_descriptor_pool: vulkan.VkDescriptorPool = null,
+imgui_descriptor_pool: l0vk.VkDescriptorPool = null,
 
 const Image = union(enum) {
     color: buffer.ColorImage,
@@ -39,11 +38,11 @@ pub const RenderPassInitInfo = struct {
     render_area: RenderArea,
 };
 
-pub fn init(info: *const RenderPassInitInfo) VulkanError!RenderPass {
+pub fn init(info: *const RenderPassInitInfo) !RenderPass {
     var system = info.system;
     var swapchain = &info.window.swapchain.swapchain;
 
-    var render_pass: vulkan.VkRenderPass = undefined;
+    var render_pass: l0vk.VkRenderPass = undefined;
     switch (info.tag) {
         .basic_primary => {
             var clear = true;
@@ -61,7 +60,7 @@ pub fn init(info: *const RenderPassInitInfo) VulkanError!RenderPass {
         },
     }
 
-    var framebuffers: []vulkan.VkFramebuffer = undefined;
+    var framebuffers: []l0vk.VkFramebuffer = undefined;
     switch (info.tag) {
         .basic_primary => {
             framebuffers = try create_basic_primary_framebuffers(system, swapchain, render_pass);
@@ -89,7 +88,7 @@ pub fn init(info: *const RenderPassInitInfo) VulkanError!RenderPass {
 
 pub fn deinit(self: *RenderPass, allocator: std.mem.Allocator, system: *VulkanSystem) void {
     if (self.imgui_enabled) {
-        vulkan.vkDestroyDescriptorPool(system.logical_device, self.imgui_descriptor_pool, null);
+        l0vk.vkDestroyDescriptorPool(system.logical_device, self.imgui_descriptor_pool, null);
         cimgui.ImGui_ImplVulkan_Shutdown();
         cimgui.ImGui_ImplGlfw_Shutdown();
         cimgui.igDestroyContext(null);
@@ -97,7 +96,7 @@ pub fn deinit(self: *RenderPass, allocator: std.mem.Allocator, system: *VulkanSy
 
     var i: usize = 0;
     while (i < self.framebuffers.len) : (i += 1) {
-        vulkan.vkDestroyFramebuffer(system.logical_device, self.framebuffers[i], null);
+        l0vk.vkDestroyFramebuffer(system.logical_device, self.framebuffers[i], null);
     }
     allocator.free(self.framebuffers);
 
@@ -107,79 +106,74 @@ pub fn deinit(self: *RenderPass, allocator: std.mem.Allocator, system: *VulkanSy
     }
     allocator.free(self.images);
 
-    vulkan.vkDestroyRenderPass(system.logical_device, self.render_pass, null);
+    l0vk.vkDestroyRenderPass(system.logical_device, self.render_pass, null);
 }
 
-pub fn setup_imgui(self: *RenderPass, system: *VulkanSystem, window: *Window) VulkanError!void {
+pub fn setup_imgui(self: *RenderPass, system: *VulkanSystem, window: *Window) !void {
     self.imgui_enabled = true;
 
     // --- Descriptor pool.
 
-    const pool_sizes = [_]vulkan.VkDescriptorPoolSize{
+    const pool_sizes = [_]l0vk.VkDescriptorPoolSize{
         .{
-            .type = vulkan.VK_DESCRIPTOR_TYPE_SAMPLER,
+            .type = .sampler,
             .descriptorCount = 1000,
         },
         .{
-            .type = vulkan.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .type = .combined_image_sampler,
             .descriptorCount = 1000,
         },
         .{
-            .type = vulkan.VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+            .type = .sampled_image,
             .descriptorCount = 1000,
         },
         .{
-            .type = vulkan.VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+            .type = .storage_image,
             .descriptorCount = 1000,
         },
         .{
-            .type = vulkan.VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER,
+            .type = .uniform_texel_buffer,
             .descriptorCount = 1000,
         },
         .{
-            .type = vulkan.VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER,
+            .type = .storage_texel_buffer,
             .descriptorCount = 1000,
         },
         .{
-            .type = vulkan.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .type = .uniform_buffer,
             .descriptorCount = 1000,
         },
         .{
-            .type = vulkan.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .type = .storage_buffer,
             .descriptorCount = 1000,
         },
         .{
-            .type = vulkan.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+            .type = .uniform_buffer_dynamic,
             .descriptorCount = 1000,
         },
         .{
-            .type = vulkan.VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC,
+            .type = .storage_buffer_dynamic,
             .descriptorCount = 1000,
         },
         .{
-            .type = vulkan.VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT,
+            .type = .input_attachment,
             .descriptorCount = 1000,
         },
     };
 
-    const pool_info = vulkan.VkDescriptorPoolCreateInfo{
-        .sType = vulkan.VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-        .flags = vulkan.VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
+    const pool_info = l0vk.VkDescriptorPoolCreateInfo{
+        .flags = .{
+            .free_descriptor_set = true,
+        },
         .maxSets = 1000,
-        .poolSizeCount = @intCast(pool_sizes.len),
-        .pPoolSizes = pool_sizes[0..].ptr,
+        .poolSizes = &pool_sizes,
     };
 
-    var imgui_pool: vulkan.VkDescriptorPool = undefined;
-    var result = vulkan.vkCreateDescriptorPool(system.logical_device, &pool_info, null, &imgui_pool);
-    if (result != vulkan.VK_SUCCESS) {
-        switch (result) {
-            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
-            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
-            else => unreachable,
-        }
-    }
-    self.imgui_descriptor_pool = imgui_pool;
+    self.imgui_descriptor_pool = try l0vk.vkCreateDescriptorPool(
+        system.logical_device,
+        &pool_info,
+        null,
+    );
 
     // --- Initialize imgui library.
 
@@ -194,7 +188,7 @@ pub fn setup_imgui(self: *RenderPass, system: *VulkanSystem, window: *Window) Vu
         .DescriptorPool = @ptrCast(self.imgui_descriptor_pool),
         .MinImageCount = @intCast(window.swapchain.swapchain.swapchain_images.len),
         .ImageCount = @intCast(window.swapchain.swapchain.swapchain_images.len),
-        .MSAASamples = vulkan.VK_SAMPLE_COUNT_1_BIT,
+        .MSAASamples = @import("vulkan").VK_SAMPLE_COUNT_1_BIT,
     };
     _ = cimgui.ImGui_ImplVulkan_Init(@ptrCast(&vulkan_init_info), @ptrCast(self.render_pass));
 
@@ -203,48 +197,33 @@ pub fn setup_imgui(self: *RenderPass, system: *VulkanSystem, window: *Window) Vu
     var command_pool = system.command_pool;
     var command_buffer = window.swapchain.swapchain.a_command_buffers[0];
 
-    result = vulkan.vkResetCommandPool(system.logical_device, command_pool, 0);
-    if (result != vulkan.VK_SUCCESS) {
-        return VulkanError.vk_error_out_of_host_memory;
-    }
-    const cb_begin_info = vulkan.VkCommandBufferBeginInfo{
-        .sType = vulkan.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-        .flags = vulkan.VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+    try l0vk.vkResetCommandPool(
+        system.logical_device,
+        command_pool,
+        .{},
+    );
 
-        .pNext = null,
-        .pInheritanceInfo = null,
+    const cb_begin_info = l0vk.VkCommandBufferBeginInfo{
+        .flags = .{
+            .one_time_submit = true,
+        },
     };
-    result = vulkan.vkBeginCommandBuffer(command_buffer, &cb_begin_info);
-    if (result != vulkan.VK_SUCCESS) {
-        return VulkanError.vk_error_out_of_host_memory;
-    }
+    try l0vk.vkBeginCommandBuffer(command_buffer, &cb_begin_info);
 
     _ = cimgui.ImGui_ImplVulkan_CreateFontsTexture(@ptrCast(command_buffer));
 
-    const end_info = vulkan.VkSubmitInfo{
-        .sType = vulkan.VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .commandBufferCount = 1,
-        .pCommandBuffers = &command_buffer,
-
-        .pNext = null,
-        .waitSemaphoreCount = 0,
-        .pWaitSemaphores = null,
-        .signalSemaphoreCount = 0,
-        .pSignalSemaphores = null,
+    const end_info = l0vk.VkSubmitInfo{
+        .commandBuffers = &[_]l0vk.VkCommandBuffer{
+            command_buffer,
+        },
+        .waitSemaphores = &[_]l0vk.VkSemaphore{},
+        .signalSemaphores = &[_]l0vk.VkSemaphore{},
         .pWaitDstStageMask = null,
     };
-    result = vulkan.vkEndCommandBuffer(command_buffer);
-    if (result != vulkan.VK_SUCCESS) {
-        return VulkanError.vk_error_out_of_host_memory;
-    }
-    result = vulkan.vkQueueSubmit(system.graphics_queue, 1, &end_info, null);
-    if (result != vulkan.VK_SUCCESS) {
-        return VulkanError.vk_error_out_of_host_memory;
-    }
-    result = vulkan.vkDeviceWaitIdle(system.logical_device);
-    if (result != vulkan.VK_SUCCESS) {
-        return VulkanError.vk_error_out_of_host_memory;
-    }
+
+    try l0vk.vkEndCommandBuffer(command_buffer);
+    try l0vk.vkQueueSubmit(system.graphics_queue, 1, &end_info, null);
+    try l0vk.vkDeviceWaitIdle(system.logical_device);
 
     _ = cimgui.ImGui_ImplVulkan_DestroyFontUploadObjects();
 
@@ -260,12 +239,11 @@ pub fn setup_imgui(self: *RenderPass, system: *VulkanSystem, window: *Window) Vu
 
 pub fn begin(
     self: *RenderPass,
-    command_buffer: vulkan.VkCommandBuffer,
+    command_buffer: l0vk.VkCommandBuffer,
     image_index: u32,
     clear: bool,
 ) void {
-    var clearValueCount: u32 = 0;
-    var clear_values = [_]vulkan.VkClearValue{
+    var clear_values = [_]l0vk.VkClearValue{
         .{
             .color = .{
                 .float32 = [_]f32{ 0.0, 0.0, 0.0, 1.0 },
@@ -278,9 +256,11 @@ pub fn begin(
             },
         },
     };
-    var pClearValues: ?*vulkan.VkClearValue = @ptrCast(clear_values[0..].ptr);
+    var clear_values_slice: []l0vk.VkClearValue = undefined;
     if (clear) {
-        clearValueCount = clear_values.len;
+        clear_values_slice = clear_values[0..];
+    } else {
+        clear_values_slice = clear_values[0..0];
     }
 
     var framebuffer = self.framebuffers[0];
@@ -288,29 +268,33 @@ pub fn begin(
         framebuffer = self.framebuffers[image_index];
     }
 
-    const render_pass_info = vulkan.VkRenderPassBeginInfo{
-        .sType = vulkan.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+    const render_pass_info = l0vk.VkRenderPassBeginInfo{
         .renderPass = self.render_pass,
         .framebuffer = framebuffer,
-        .renderArea = vulkan.VkRect2D{
+        .renderArea = l0vk.VkRect2D{
             .offset = .{ .x = 0, .y = 0 },
             .extent = .{ .width = self.render_area.width, .height = self.render_area.height },
         },
-        .clearValueCount = clearValueCount,
-        .pClearValues = pClearValues,
-
-        .pNext = null,
+        .clearValues = clear_values_slice,
     };
 
-    vulkan.vkCmdBeginRenderPass(command_buffer, &render_pass_info, vulkan.VK_SUBPASS_CONTENTS_INLINE);
+    l0vk.vkCmdBeginRenderPass(
+        command_buffer,
+        &render_pass_info,
+        ._inline,
+    );
 }
 
-pub fn end(self: *RenderPass, command_buffer: vulkan.VkCommandBuffer) void {
+pub fn end(self: *RenderPass, command_buffer: l0vk.VkCommandBuffer) void {
     if (self.imgui_enabled) {
-        cimgui.ImGui_ImplVulkan_RenderDrawData(cimgui.igGetDrawData(), @ptrCast(command_buffer), null);
+        cimgui.ImGui_ImplVulkan_RenderDrawData(
+            cimgui.igGetDrawData(),
+            @ptrCast(command_buffer),
+            null,
+        );
     }
 
-    vulkan.vkCmdEndRenderPass(command_buffer);
+    l0vk.vkCmdEndRenderPass(command_buffer);
 }
 
 pub fn resize_callback(
@@ -319,10 +303,10 @@ pub fn resize_callback(
     system: *VulkanSystem,
     swapchain: *Swapchain,
     new_render_area: RenderArea,
-) VulkanError!void {
+) !void {
     var i: usize = 0;
     while (i < self.framebuffers.len) : (i += 1) {
-        vulkan.vkDestroyFramebuffer(system.logical_device, self.framebuffers[i], null);
+        l0vk.vkDestroyFramebuffer(system.logical_device, self.framebuffers[i], null);
     }
     allocator.free(self.framebuffers);
 
@@ -333,39 +317,39 @@ pub fn resize_callback(
 // --- Vulkan renderpass. {{{1
 
 const AttachmentAndRef = struct {
-    attachment: vulkan.VkAttachmentDescription,
-    ref: vulkan.VkAttachmentReference,
+    attachment: l0vk.VkAttachmentDescription,
+    ref: l0vk.VkAttachmentReference,
 };
 
-fn build_color_attachment(swapchain: *Swapchain, clear: bool) VulkanError!AttachmentAndRef {
-    var loadOp = vulkan.VK_ATTACHMENT_LOAD_OP_CLEAR;
+fn build_color_attachment(swapchain: *Swapchain, clear: bool) !AttachmentAndRef {
+    var loadOp: l0vk.VkAttachmentLoadOp = .clear;
     if (!clear) {
-        loadOp = vulkan.VK_ATTACHMENT_LOAD_OP_LOAD;
+        loadOp = .load;
     }
-    var initialLayout = vulkan.VK_IMAGE_LAYOUT_UNDEFINED;
+    var initialLayout: l0vk.VkImageLayout = .undefined;
     if (!clear) {
-        initialLayout = vulkan.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        initialLayout = .color_attachment_optimal;
     }
-    var finalLayout = vulkan.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    var finalLayout: l0vk.VkImageLayout = .color_attachment_optimal;
     if (!clear) {
-        finalLayout = vulkan.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        finalLayout = .present_src_khr;
     }
 
-    const color_attachment = vulkan.VkAttachmentDescription{
-        .format = @intFromEnum(swapchain.swapchain_image_format),
+    const color_attachment = l0vk.VkAttachmentDescription{
+        .format = swapchain.swapchain_image_format,
         // The top-level render pass doesn't need multisampling.
-        .samples = 1,
-        .loadOp = @intCast(loadOp),
-        .storeOp = vulkan.VK_ATTACHMENT_STORE_OP_STORE,
-        .stencilLoadOp = vulkan.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-        .stencilStoreOp = vulkan.VK_ATTACHMENT_STORE_OP_DONT_CARE,
-        .initialLayout = @intCast(initialLayout),
-        .finalLayout = @intCast(finalLayout),
+        .samples = .VK_SAMPLE_COUNT_1_BIT,
+        .loadOp = loadOp,
+        .storeOp = .store,
+        .stencilLoadOp = .dont_care,
+        .stencilStoreOp = .dont_care,
+        .initialLayout = initialLayout,
+        .finalLayout = finalLayout,
     };
 
-    const color_attachment_ref = vulkan.VkAttachmentReference{
+    const color_attachment_ref = l0vk.VkAttachmentReference{
         .attachment = 0,
-        .layout = vulkan.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        .layout = .color_attachment_optimal,
     };
 
     return AttachmentAndRef{
@@ -374,55 +358,44 @@ fn build_color_attachment(swapchain: *Swapchain, clear: bool) VulkanError!Attach
     };
 }
 
-fn build_basic_primary_renderpass(system: *VulkanSystem, swapchain: *Swapchain, clear: bool) VulkanError!vulkan.VkRenderPass {
+fn build_basic_primary_renderpass(
+    system: *VulkanSystem,
+    swapchain: *Swapchain,
+    clear: bool,
+) !l0vk.VkRenderPass {
     // --- Attachments.
 
-    const color_attachment_count = 1;
-    var color_attachment = try build_color_attachment(swapchain, clear);
-    var pColorAttachments: [*c]vulkan.VkAttachmentReference = &color_attachment.ref;
+    const color_attachment = try build_color_attachment(swapchain, clear);
+    const color_attachments = [_]l0vk.VkAttachmentReference{color_attachment.ref};
 
     // --- Subpass.
 
-    const subpass = vulkan.VkSubpassDescription{
-        .pipelineBindPoint = vulkan.VK_PIPELINE_BIND_POINT_GRAPHICS,
-        .colorAttachmentCount = color_attachment_count,
-        .pColorAttachments = pColorAttachments,
+    const subpass = l0vk.VkSubpassDescription{
+        .pipelineBindPoint = .graphics,
+        .colorAttachments = &color_attachments,
+        .inputAttachments = &[0]l0vk.VkAttachmentReference{},
+        .resolveAttachments = &[0]l0vk.VkAttachmentReference{},
         .pDepthStencilAttachment = null,
-        .pResolveAttachments = null,
-
-        .flags = 0,
-        .inputAttachmentCount = 0,
-        .pInputAttachments = null,
-        .preserveAttachmentCount = 0,
-        .pPreserveAttachments = null,
+        .preserveAttachments = &[0]u32{},
     };
 
     // ---
 
-    const attachments = [_]vulkan.VkAttachmentDescription{color_attachment.attachment};
-
-    const render_pass_info = vulkan.VkRenderPassCreateInfo{
-        .sType = vulkan.VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-        .attachmentCount = attachments.len,
-        .pAttachments = attachments[0..].ptr,
-        .subpassCount = 1,
-        .pSubpasses = &subpass,
-
-        .dependencyCount = 0,
-        .pDependencies = null,
-        .flags = 0,
-        .pNext = null,
+    const attachments = [_]l0vk.VkAttachmentDescription{
+        color_attachment.attachment,
     };
 
-    var render_pass: vulkan.VkRenderPass = undefined;
-    const result = vulkan.vkCreateRenderPass(system.logical_device, &render_pass_info, null, &render_pass);
-    if (result != vulkan.VK_SUCCESS) {
-        switch (result) {
-            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
-            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
-            else => unreachable,
-        }
-    }
+    const render_pass_info = l0vk.VkRenderPassCreateInfo{
+        .attachments = &attachments,
+        .subpasses = &[_]l0vk.VkSubpassDescription{subpass},
+        .dependencies = &[_]l0vk.VkSubpassDependency{},
+    };
+
+    const render_pass = try l0vk.vkCreateRenderPass(
+        system.logical_device,
+        &render_pass_info,
+        null,
+    );
 
     return render_pass;
 }
@@ -434,39 +407,31 @@ fn build_basic_primary_renderpass(system: *VulkanSystem, swapchain: *Swapchain, 
 fn create_basic_primary_framebuffers(
     system: *VulkanSystem,
     swapchain: *Swapchain,
-    render_pass: vulkan.VkRenderPass,
-) VulkanError![]vulkan.VkFramebuffer {
+    render_pass: l0vk.VkRenderPass,
+) ![]l0vk.VkFramebuffer {
     const allocator = system.allocator;
-    var framebuffers = try allocator.alloc(vulkan.VkFramebuffer, swapchain.swapchain_image_views.len);
+    var framebuffers = try allocator.alloc(l0vk.VkFramebuffer, swapchain.swapchain_image_views.len);
     errdefer allocator.free(framebuffers);
 
     var i: usize = 0;
     while (i < swapchain.swapchain_image_views.len) : (i += 1) {
-        const attachments = [_]vulkan.VkImageView{
+        const attachments = [_]l0vk.VkImageView{
             swapchain.swapchain_image_views[i],
         };
 
-        var framebuffer_info = vulkan.VkFramebufferCreateInfo{
-            .sType = vulkan.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+        var framebuffer_info = l0vk.VkFramebufferCreateInfo{
             .renderPass = render_pass,
-            .attachmentCount = attachments.len,
-            .pAttachments = attachments[0..].ptr,
+            .attachments = &attachments,
             .width = swapchain.swapchain_extent.width,
             .height = swapchain.swapchain_extent.height,
             .layers = 1,
-
-            .pNext = null,
-            .flags = 0,
         };
 
-        const result = vulkan.vkCreateFramebuffer(system.logical_device, &framebuffer_info, null, &framebuffers[i]);
-        if (result != vulkan.VK_SUCCESS) {
-            switch (result) {
-                vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
-                vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
-                else => unreachable,
-            }
-        }
+        framebuffers[i] = try l0vk.vkCreateFramebuffer(
+            system.logical_device,
+            &framebuffer_info,
+            null,
+        );
     }
 
     return framebuffers;
@@ -477,37 +442,29 @@ fn create_basic_deferred_framebuffers(
     system: *VulkanSystem,
     width: u32,
     height: u32,
-    image_view: vulkan.VkImageView,
-    render_pass: vulkan.VkRenderPass,
-) VulkanError![]vulkan.VkFramebuffer {
-    var framebuffers = try allocator.alloc(vulkan.VkFramebuffer, 1);
+    image_view: l0vk.VkImageView,
+    render_pass: l0vk.VkRenderPass,
+) ![]l0vk.VkFramebuffer {
+    var framebuffers = try allocator.alloc(l0vk.VkFramebuffer, 1);
     errdefer allocator.free(framebuffers);
 
-    const attachments = [_]vulkan.VkImageView{
+    const attachments = [_]l0vk.VkImageView{
         image_view,
     };
 
-    var framebuffer_info = vulkan.VkFramebufferCreateInfo{
-        .sType = vulkan.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+    var framebuffer_info = l0vk.VkFramebufferCreateInfo{
         .renderPass = render_pass,
-        .attachmentCount = attachments.len,
-        .pAttachments = attachments[0..].ptr,
+        .attachments = &attachments,
         .width = width,
         .height = height,
         .layers = 1,
-
-        .pNext = null,
-        .flags = 0,
     };
 
-    const result = vulkan.vkCreateFramebuffer(system.logical_device, &framebuffer_info, null, &framebuffers[0]);
-    if (result != vulkan.VK_SUCCESS) {
-        switch (result) {
-            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
-            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
-            else => unreachable,
-        }
-    }
+    framebuffers[0] = try l0vk.vkCreateFramebuffer(
+        system.logical_device,
+        &framebuffer_info,
+        null,
+    );
 
     return framebuffers;
 }

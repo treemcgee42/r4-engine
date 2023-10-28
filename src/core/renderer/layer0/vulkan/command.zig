@@ -74,6 +74,36 @@ pub inline fn vkDestroyCommandPool(
     vulkan.vkDestroyCommandPool(device, commandPool, pAllocator);
 }
 
+pub const VkCommandPoolResetFlags = packed struct(u32) {
+    release_resources: bool = false,
+    _: u31 = 0,
+
+    pub const Bits = enum(c_uint) {
+        release_resources = 0x00000001,
+    };
+};
+
+pub const vkResetCommandPoolError = error{
+    VK_ERROR_OUT_OF_DEVICE_MEMORY,
+};
+
+pub fn vkResetCommandPool(
+    device: l0vk.VkDevice,
+    commandPool: VkCommandPool,
+    flags: VkCommandPoolResetFlags,
+) vkResetCommandPoolError!void {
+    const result = vulkan.vkResetCommandPool(
+        device,
+        commandPool,
+        @bitCast(flags),
+    );
+    if (result != vulkan.VK_SUCCESS) {
+        return vkResetCommandPoolError.VK_ERROR_OUT_OF_DEVICE_MEMORY;
+    }
+}
+
+// --- CommandBuffer.
+
 pub const VkCommandBufferUsageFlags = packed struct(u32) {
     one_time_submit: bool = false,
     render_pass_continue: bool = false,

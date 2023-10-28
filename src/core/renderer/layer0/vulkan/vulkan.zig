@@ -9,6 +9,7 @@ pub usingnamespace @import("./command.zig");
 pub usingnamespace @import("./sync.zig");
 pub usingnamespace @import("./pipeline.zig");
 pub usingnamespace @import("./image.zig");
+pub usingnamespace @import("./render_pass.zig");
 
 const l0vk = @This();
 
@@ -16,6 +17,11 @@ const l0vk = @This();
 
 pub const VkExtent2D = vulkan.VkExtent2D;
 pub const VkExtent3D = vulkan.VkExtent3D;
+
+pub const VkOffset2D = vulkan.VkOffset2D;
+pub const VkOffset3D = vulkan.VkOffset3D;
+
+pub const VkRect2D = vulkan.VkRect2D;
 
 // ---
 
@@ -91,10 +97,6 @@ pub const VkQueryControlFlags = packed struct(u32) {
 };
 
 // ---
-
-pub const VkRenderPass = vulkan.VkRenderPass;
-
-pub const VkFramebuffer = vulkan.VkFramebuffer;
 
 // --- swapchain
 
