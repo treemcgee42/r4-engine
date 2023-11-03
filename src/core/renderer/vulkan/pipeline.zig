@@ -2,17 +2,17 @@ const std = @import("std");
 const PipelineInfo = @import("../pipeline.zig").PipelineInfo;
 const VulkanSystem = @import("./VulkanSystem.zig");
 const VulkanError = VulkanSystem.VulkanError;
-const vulkan = @import("vulkan");
+const l0vk = @import("../layer0/vulkan/vulkan.zig");
 const Renderer = @import("../Renderer.zig");
 const VirtualPipeline = @import("../pipeline.zig").Pipeline;
 
-pub const Pipeline = vulkan.VkPipeline;
+pub const Pipeline = l0vk.VkPipeline;
 
 pub const PipelineSystem = struct {
-    pipelines: std.StringHashMap(vulkan.VkPipeline),
+    pipelines: std.StringHashMap(l0vk.VkPipeline),
 
     pub fn init(allocator: std.mem.Allocator) PipelineSystem {
-        const pipelines = std.StringHashMap(vulkan.VkPipeline).init(allocator);
+        const pipelines = std.StringHashMap(l0vk.VkPipeline).init(allocator);
 
         return .{
             .pipelines = pipelines,
@@ -27,7 +27,7 @@ pub const PipelineSystem = struct {
                 break;
             }
 
-            vulkan.vkDestroyPipeline(system.logical_device, pipeline.?.value_ptr.*, null);
+            l0vk.vkDestroyPipeline(system.logical_device, pipeline.?.value_ptr.*, null);
         }
         self.pipelines.deinit();
     }
@@ -36,8 +36,8 @@ pub const PipelineSystem = struct {
         self: *PipelineSystem,
         renderer: *Renderer,
         virtual_pipeline: *const VirtualPipeline,
-        renderpass: vulkan.VkRenderPass,
-    ) !vulkan.VkPipeline {
+        renderpass: l0vk.VkRenderPass,
+    ) !l0vk.VkPipeline {
         // --- Try to find in cache.
 
         const lookup_result = self.pipelines.get(virtual_pipeline.name);
@@ -57,37 +57,17 @@ pub const PipelineSystem = struct {
 pub fn build_pipeline(
     renderer: *Renderer,
     virtual_pipeline: *const VirtualPipeline,
-    renderpass: vulkan.VkRenderPass,
-) VulkanError!vulkan.VkPipeline {
+    renderpass: l0vk.VkRenderPass,
+) !l0vk.VkPipeline {
     const allocator = renderer.allocator;
     var system = renderer.system;
 
-    const pipeline_layout_info = vulkan.VkPipelineLayoutCreateInfo{
-        .sType = vulkan.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-
-        // Default:
-        .setLayoutCount = 0,
-        .pSetLayouts = null,
-        .pushConstantRangeCount = 0,
-        .pPushConstantRanges = null,
-        .pNext = null,
-        .flags = 0,
-    };
-
-    var pipeline_layout: vulkan.VkPipelineLayout = undefined;
-    var result = vulkan.vkCreatePipelineLayout(
+    const pipeline_layout_info = l0vk.VkPipelineLayoutCreateInfo{};
+    const pipeline_layout = try l0vk.vkCreatePipelineLayout(
         system.logical_device,
         &pipeline_layout_info,
         null,
-        &pipeline_layout,
     );
-    if (result != vulkan.VK_SUCCESS) {
-        switch (result) {
-            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanSystem.VulkanError.vk_error_out_of_host_memory,
-            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanSystem.VulkanError.vk_error_out_of_device_memory,
-            else => unreachable,
-        }
-    }
 
     // ---
 
@@ -101,99 +81,73 @@ pub fn build_pipeline(
 
     // ---
 
-    var vert_shader_stage_pipeline_create_info = vulkan.VkPipelineShaderStageCreateInfo{
-        .sType = vulkan.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-        .stage = vulkan.VK_SHADER_STAGE_VERTEX_BIT,
+    var vert_shader_stage_pipeline_create_info = l0vk.VkPipelineShaderStageCreateInfo{
+        .stage = l0vk.VkShaderStageFlags.Bits.vertex,
         .module = vert_shader_module,
         .pName = "main",
-
-        .pSpecializationInfo = null,
-        .pNext = null,
-        .flags = 0,
     };
 
-    var frag_shader_stage_pipeline_create_info = vulkan.VkPipelineShaderStageCreateInfo{
-        .sType = vulkan.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-        .stage = vulkan.VK_SHADER_STAGE_FRAGMENT_BIT,
+    var frag_shader_stage_pipeline_create_info = l0vk.VkPipelineShaderStageCreateInfo{
+        .stage = l0vk.VkShaderStageFlags.Bits.fragment,
         .module = frag_shader_module,
         .pName = "main",
-
-        .pSpecializationInfo = null,
-        .pNext = null,
-        .flags = 0,
     };
 
-    const shader_stages = [_]vulkan.VkPipelineShaderStageCreateInfo{
+    const shader_stages = [_]l0vk.VkPipelineShaderStageCreateInfo{
         vert_shader_stage_pipeline_create_info,
         frag_shader_stage_pipeline_create_info,
     };
 
     // --- Input assembly.
 
-    const vertex_input_info = vulkan.VkPipelineVertexInputStateCreateInfo{
-        .sType = vulkan.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-        .vertexBindingDescriptionCount = 0,
-        .pVertexBindingDescriptions = null,
-        .vertexAttributeDescriptionCount = 0,
-        .pVertexAttributeDescriptions = null,
-        .pNext = null,
-        .flags = 0,
+    const vertex_input_info = l0vk.VkPipelineVertexInputStateCreateInfo{
+        .vertex_binding_descriptions = &[_]l0vk.VkVertexInputBindingDescription{},
+        .vertex_attribute_descriptions = &[_]l0vk.VkVertexInputAttributeDescription{},
     };
 
     const topology = switch (virtual_pipeline.topology) {
-        .triangle_list => vulkan.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+        .triangle_list => l0vk.VkPrimitiveTopology.triangle_list,
     };
 
-    const input_assembly = vulkan.VkPipelineInputAssemblyStateCreateInfo{
-        .sType = vulkan.VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+    const input_assembly = l0vk.VkPipelineInputAssemblyStateCreateInfo{
         .topology = topology,
-        .primitiveRestartEnable = vulkan.VK_FALSE,
-        .pNext = null,
-        .flags = 0,
+        .primitiveRestartEnable = false,
     };
 
     // --- Viewport and scissor.
 
-    const dynamic_states = [_]vulkan.VkDynamicState{
-        vulkan.VK_DYNAMIC_STATE_VIEWPORT,
-        vulkan.VK_DYNAMIC_STATE_SCISSOR,
+    const dynamic_states = [_]l0vk.VkDynamicState{
+        .viewport,
+        .scissor,
     };
-    const dynamic_state = vulkan.VkPipelineDynamicStateCreateInfo{
-        .sType = vulkan.VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-        .dynamicStateCount = dynamic_states.len,
-        .pDynamicStates = dynamic_states[0..].ptr,
-        .pNext = null,
-        .flags = 0,
+    const dynamic_state = l0vk.VkPipelineDynamicStateCreateInfo{
+        .dynamic_states = &dynamic_states,
     };
 
-    const viewport_state = vulkan.VkPipelineViewportStateCreateInfo{
-        .sType = vulkan.VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+    const viewport_state = l0vk.VkPipelineViewportStateCreateInfo{
         .viewportCount = 1,
+        .viewports = &[_]l0vk.VkViewport{},
         .scissorCount = 1,
-        .pViewports = null,
-        .pScissors = null,
-        .pNext = null,
-        .flags = 0,
+        .scissors = &[_]l0vk.VkRect2D{},
     };
 
     // --- Rasterizer.
 
     const frontFace = switch (virtual_pipeline.front_face_orientation) {
-        .clockwise => vulkan.VK_FRONT_FACE_CLOCKWISE,
-        .counter_clockwise => vulkan.VK_FRONT_FACE_COUNTER_CLOCKWISE,
+        .clockwise => l0vk.VkFrontFace.clockwise,
+        .counter_clockwise => l0vk.VkFrontFace.counter_clockwise,
     };
 
-    const rasterizer = vulkan.VkPipelineRasterizationStateCreateInfo{
-        .sType = vulkan.VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-        .depthClampEnable = vulkan.VK_FALSE,
-        .rasterizerDiscardEnable = vulkan.VK_FALSE,
-        .polygonMode = vulkan.VK_POLYGON_MODE_FILL,
+    const rasterizer = l0vk.VkPipelineRasterizationStateCreateInfo{
+        .depthClampEnable = false,
+        .rasterizerDiscardEnable = false,
+        .polygonMode = .fill,
         .lineWidth = 1.0,
-        .cullMode = vulkan.VK_CULL_MODE_BACK_BIT,
-        .frontFace = @intCast(frontFace),
-        .depthBiasEnable = vulkan.VK_FALSE,
-        .pNext = null,
-        .flags = 0,
+        .cullMode = .{
+            .back = true,
+        },
+        .frontFace = frontFace,
+        .depthBiasEnable = false,
         .depthBiasConstantFactor = 0.0,
         .depthBiasClamp = 0.0,
         .depthBiasSlopeFactor = 0.0,
@@ -201,95 +155,82 @@ pub fn build_pipeline(
 
     // --- Multisampling.
 
-    const multisampling = vulkan.VkPipelineMultisampleStateCreateInfo{
-        .sType = vulkan.VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-        .sampleShadingEnable = vulkan.VK_FALSE,
-        .rasterizationSamples = vulkan.VK_SAMPLE_COUNT_1_BIT,
-        // Default:
+    const multisampling = l0vk.VkPipelineMultisampleStateCreateInfo{
+        .sampleShadingEnable = false,
+        .rasterizationSamples = .VK_SAMPLE_COUNT_1_BIT,
         .minSampleShading = 1.0,
-        .pSampleMask = null,
-        .alphaToCoverageEnable = vulkan.VK_FALSE,
-        .alphaToOneEnable = vulkan.VK_FALSE,
-        .pNext = null,
-        .flags = 0,
+        .alphaToCoverageEnable = false,
+        .alphaToOneEnable = false,
     };
 
     // --- Color blending.
 
-    const color_blend_attachment = vulkan.VkPipelineColorBlendAttachmentState{
-        .colorWriteMask = vulkan.VK_COLOR_COMPONENT_R_BIT | vulkan.VK_COLOR_COMPONENT_G_BIT | vulkan.VK_COLOR_COMPONENT_B_BIT | vulkan.VK_COLOR_COMPONENT_A_BIT,
-        .blendEnable = vulkan.VK_FALSE,
-        // Default:
-        .srcColorBlendFactor = vulkan.VK_BLEND_FACTOR_ONE,
-        .dstColorBlendFactor = vulkan.VK_BLEND_FACTOR_ZERO,
-        .colorBlendOp = vulkan.VK_BLEND_OP_ADD,
-        .srcAlphaBlendFactor = vulkan.VK_BLEND_FACTOR_ONE,
-        .dstAlphaBlendFactor = vulkan.VK_BLEND_FACTOR_ZERO,
-        .alphaBlendOp = vulkan.VK_BLEND_OP_ADD,
+    const color_blend_attachment = l0vk.VkPipelineColorBlendAttachmentState{
+        .colorWriteMask = .{ .r = true, .g = true, .b = true, .a = true },
+        .blendEnable = false,
+
+        .srcColorBlendFactor = .one,
+        .dstColorBlendFactor = .zero,
+        .colorBlendOp = .add,
+        .srcAlphaBlendFactor = .one,
+        .dstAlphaBlendFactor = .zero,
+        .alphaBlendOp = .add,
     };
 
-    const color_blending = vulkan.VkPipelineColorBlendStateCreateInfo{
-        .sType = vulkan.VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-        .logicOpEnable = vulkan.VK_FALSE,
-        .logicOp = vulkan.VK_LOGIC_OP_COPY, // Ignored.
-        .attachmentCount = 1,
-        .pAttachments = &color_blend_attachment,
-        // Default:
+    const color_blending = l0vk.VkPipelineColorBlendStateCreateInfo{
+        .logicOpEnable = false,
+        .logicOp = .copy,
+        .attachments = &[_]l0vk.VkPipelineColorBlendAttachmentState{color_blend_attachment},
         .blendConstants = [_]f32{
             0.0,
             0.0,
             0.0,
             0.0,
         },
-        .pNext = null,
-        .flags = 0,
     };
 
     // -- Pipeline.
 
-    const pipeline_info = vulkan.VkGraphicsPipelineCreateInfo{
-        .sType = vulkan.VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-        .stageCount = shader_stages.len,
-        .pStages = shader_stages[0..].ptr,
+    const pipeline_info = l0vk.VkGraphicsPipelineCreateInfo{
+        .pNext = null,
+        .flags = .{},
+        .stages = &shader_stages,
+
         .pVertexInputState = &vertex_input_info,
         .pInputAssemblyState = &input_assembly,
+        .pTessellationState = null,
         .pViewportState = &viewport_state,
         .pRasterizationState = &rasterizer,
         .pMultisampleState = &multisampling,
+        .pDepthStencilState = null,
         .pColorBlendState = &color_blending,
         .pDynamicState = &dynamic_state,
+
         .layout = pipeline_layout,
         .renderPass = renderpass,
         .subpass = 0,
-        .pDepthStencilState = null,
-
-        .basePipelineHandle = @ptrCast(vulkan.VK_NULL_HANDLE),
+        .basePipelineHandle = @ptrCast(l0vk.VK_NULL_HANDLE),
         .basePipelineIndex = -1,
-        .pNext = null,
-        .flags = 0,
-        .pTessellationState = null,
     };
 
-    var pipeline: vulkan.VkPipeline = undefined;
-    result = vulkan.vkCreateGraphicsPipelines(system.logical_device, @ptrCast(vulkan.VK_NULL_HANDLE), 1, &pipeline_info, null, &pipeline);
-    if (result != vulkan.VK_SUCCESS) {
-        switch (result) {
-            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
-            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
-            vulkan.VK_ERROR_INVALID_SHADER_NV => return VulkanError.vk_error_invalid_shader_nv,
-            else => unreachable,
-        }
-    }
+    var pipelines = try l0vk.vkCreateGraphicsPipelines(
+        allocator,
+        system.logical_device,
+        @ptrCast(l0vk.VK_NULL_HANDLE),
+        &[_]l0vk.VkGraphicsPipelineCreateInfo{pipeline_info},
+        null,
+    );
+    defer allocator.free(pipelines);
 
     // ---
 
     // TODO: can this be destroyed here?
-    vulkan.vkDestroyPipelineLayout(system.logical_device, pipeline_layout, null);
+    l0vk.vkDestroyPipelineLayout(system.logical_device, pipeline_layout, null);
 
-    vulkan.vkDestroyShaderModule(system.logical_device, vert_shader_module, null);
-    vulkan.vkDestroyShaderModule(system.logical_device, frag_shader_module, null);
+    l0vk.vkDestroyShaderModule(system.logical_device, vert_shader_module, null);
+    l0vk.vkDestroyShaderModule(system.logical_device, frag_shader_module, null);
 
-    return pipeline;
+    return pipelines[0];
 }
 
 fn read_file(filename: []const u8, allocator: std.mem.Allocator) VulkanError![]const u8 {
@@ -304,26 +245,13 @@ fn read_file(filename: []const u8, allocator: std.mem.Allocator) VulkanError![]c
     return buf;
 }
 
-fn create_shader_module(device: vulkan.VkDevice, code: []const u8) VulkanError!vulkan.VkShaderModule {
-    const shader_module_create_info = vulkan.VkShaderModuleCreateInfo{
-        .sType = vulkan.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+fn create_shader_module(device: l0vk.VkDevice, code: []const u8) !l0vk.VkShaderModule {
+    const shader_module_create_info = l0vk.VkShaderModuleCreateInfo{
         .codeSize = @intCast(code.len),
         .pCode = @ptrCast(@alignCast(code.ptr)),
-
-        .pNext = null,
-        .flags = 0,
     };
 
-    var shader_module: vulkan.VkShaderModule = undefined;
-    const result = vulkan.vkCreateShaderModule(device, &shader_module_create_info, null, &shader_module);
-    if (result != vulkan.VK_SUCCESS) {
-        switch (result) {
-            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
-            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
-            vulkan.VK_ERROR_INVALID_SHADER_NV => return VulkanError.vk_error_invalid_shader_nv,
-            else => unreachable,
-        }
-    }
+    const shader_module = try l0vk.vkCreateShaderModule(device, &shader_module_create_info, null);
 
     return shader_module;
 }

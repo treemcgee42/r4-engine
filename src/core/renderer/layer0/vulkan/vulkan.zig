@@ -10,6 +10,7 @@ pub usingnamespace @import("./sync.zig");
 pub usingnamespace @import("./pipeline.zig");
 pub usingnamespace @import("./image.zig");
 pub usingnamespace @import("./render_pass.zig");
+pub usingnamespace @import("./shaders.zig");
 
 const l0vk = @This();
 
@@ -244,3 +245,7 @@ pub fn vkGetSwapchainImagesKHR(
 
     return images;
 }
+
+// ---
+
+pub const VK_NULL_HANDLE = vulkan.VK_NULL_HANDLE;

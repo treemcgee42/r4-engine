@@ -10,3 +10,4 @@ Session.vim
 imgui.ini
 .VSCodeCounter/
 .vscode/
+.nvim/
