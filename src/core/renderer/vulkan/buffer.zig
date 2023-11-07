@@ -7,18 +7,24 @@ const vulkan = @import("vulkan");
 const VulkanError = @import("./VulkanSystem.zig").VulkanError;
 const cbuf = @import("../../../vulkan/command_buffer.zig");
 const vertex = @import("../../../vertex.zig");
+const l0vk = @import("../layer0/vulkan/vulkan.zig");
 
 fn find_memory_type(
-    physical_device: vulkan.VkPhysicalDevice,
+    physical_device: l0vk.VkPhysicalDevice,
     memory_type_filter: u32,
-    properties: vulkan.VkMemoryPropertyFlags,
-) VulkanError!u32 {
-    var memory_properties: vulkan.VkPhysicalDeviceMemoryProperties = undefined;
-    vulkan.vkGetPhysicalDeviceMemoryProperties(physical_device, &memory_properties);
+    properties: l0vk.VkMemoryPropertyFlags,
+) !u32 {
+    const memory_properties = l0vk.vkGetPhysicalDeviceMemoryProperties(physical_device);
 
     var i: u5 = 0;
-    while (i < memory_properties.memoryTypeCount) : (i += 1) {
-        if ((memory_type_filter & (@as(u32, @intCast(1)) << i) != 0) and (memory_properties.memoryTypes[i].propertyFlags & properties) == properties) {
+    while (i < memory_properties.memory_types.len) : (i += 1) {
+        const suitable_type = memory_type_filter & (@as(u32, @intCast(1)) << i);
+        const suitable_properties = l0vk.and_op_flags(
+            memory_properties.memory_types[i].propertyFlags,
+            properties,
+        ) == properties;
+
+        if (suitable_type and suitable_properties) {
             return i;
         }
     }

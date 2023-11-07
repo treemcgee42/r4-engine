@@ -11,6 +11,7 @@ pub usingnamespace @import("./pipeline.zig");
 pub usingnamespace @import("./image.zig");
 pub usingnamespace @import("./render_pass.zig");
 pub usingnamespace @import("./shaders.zig");
+pub usingnamespace @import("./buffer.zig");
 
 const l0vk = @This();
 
@@ -249,3 +250,12 @@ pub fn vkGetSwapchainImagesKHR(
 // ---
 
 pub const VK_NULL_HANDLE = vulkan.VK_NULL_HANDLE;
+
+// ---
+
+pub fn and_op_flags(lhs: anytype, rhs: anytype) @TypeOf(lhs) {
+    comptime {
+        @TypeOf(lhs) == @TypeOf(rhs);
+    }
+    return @bitCast(@as(u32, @bitCast(lhs)) & @as(u32, @bitCast(rhs)));
+}
