@@ -79,6 +79,7 @@ pub fn init(info: *const RenderPassInitInfo) !RenderPass {
             );
             std.debug.print("image handle: {x}\n", .{image.image.image.?});
             images[0] = .{ .color = image };
+            info.system.tmp_image = image;
         },
     }
 

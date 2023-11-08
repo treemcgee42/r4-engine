@@ -500,52 +500,52 @@ pub const TextureImage = struct {
         return image_view;
     }
 
-    fn create_texture_sampler(
-        physical_device: vulkan.VkPhysicalDevice,
-        device: vulkan.VkDevice,
-        image: VulkanImage,
-    ) VulkanError!vulkan.VkSampler {
-        var properties: vulkan.VkPhysicalDeviceProperties = undefined;
-        vulkan.vkGetPhysicalDeviceProperties(physical_device, &properties);
-
-        const sampler_info = vulkan.VkSamplerCreateInfo{
-            .sType = vulkan.VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-            .magFilter = vulkan.VK_FILTER_LINEAR,
-            .minFilter = vulkan.VK_FILTER_LINEAR,
-            .addressModeU = vulkan.VK_SAMPLER_ADDRESS_MODE_REPEAT,
-            .addressModeV = vulkan.VK_SAMPLER_ADDRESS_MODE_REPEAT,
-            .addressModeW = vulkan.VK_SAMPLER_ADDRESS_MODE_REPEAT,
-            .anisotropyEnable = vulkan.VK_TRUE,
-            .maxAnisotropy = properties.limits.maxSamplerAnisotropy,
-            .borderColor = vulkan.VK_BORDER_COLOR_INT_OPAQUE_BLACK,
-            .unnormalizedCoordinates = vulkan.VK_FALSE,
-            .compareEnable = vulkan.VK_FALSE,
-            .compareOp = vulkan.VK_COMPARE_OP_ALWAYS,
-            .mipmapMode = vulkan.VK_SAMPLER_MIPMAP_MODE_LINEAR,
-            .mipLodBias = 0.0,
-            .minLod = 0.0,
-            .maxLod = @floatFromInt(image.mip_levels),
-        };
-
-        var sampler: vulkan.VkSampler = undefined;
-        var result = vulkan.vkCreateSampler(device, &sampler_info, null, &sampler);
-        if (result != vulkan.VK_SUCCESS) {
-            switch (result) {
-                vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
-                vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
-                else => unreachable,
-            }
-        }
-
-        return sampler;
-    }
-
     pub fn deinit(self: TextureImage, device: vulkan.VkDevice) void {
         vulkan.vkDestroySampler(device, self.sampler, null);
         vulkan.vkDestroyImageView(device, self.image_view, null);
         self.image.deinit(device);
     }
 };
+
+fn create_texture_sampler(
+    physical_device: vulkan.VkPhysicalDevice,
+    device: vulkan.VkDevice,
+    image: VulkanImage,
+) VulkanError!vulkan.VkSampler {
+    var properties: vulkan.VkPhysicalDeviceProperties = undefined;
+    vulkan.vkGetPhysicalDeviceProperties(physical_device, &properties);
+
+    const sampler_info = vulkan.VkSamplerCreateInfo{
+        .sType = vulkan.VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+        .magFilter = vulkan.VK_FILTER_LINEAR,
+        .minFilter = vulkan.VK_FILTER_LINEAR,
+        .addressModeU = vulkan.VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .addressModeV = vulkan.VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .addressModeW = vulkan.VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .anisotropyEnable = vulkan.VK_TRUE,
+        .maxAnisotropy = properties.limits.maxSamplerAnisotropy,
+        .borderColor = vulkan.VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+        .unnormalizedCoordinates = vulkan.VK_FALSE,
+        .compareEnable = vulkan.VK_FALSE,
+        .compareOp = vulkan.VK_COMPARE_OP_ALWAYS,
+        .mipmapMode = vulkan.VK_SAMPLER_MIPMAP_MODE_LINEAR,
+        .mipLodBias = 0.0,
+        .minLod = 0.0,
+        .maxLod = @floatFromInt(image.mip_levels),
+    };
+
+    var sampler: vulkan.VkSampler = undefined;
+    var result = vulkan.vkCreateSampler(device, &sampler_info, null, &sampler);
+    if (result != vulkan.VK_SUCCESS) {
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+            else => unreachable,
+        }
+    }
+
+    return sampler;
+}
 
 pub const DepthImage = struct {
     image: VulkanImage,
@@ -611,6 +611,7 @@ pub const DepthImage = struct {
 pub const ColorImage = struct {
     image: VulkanImage,
     image_view: vulkan.VkImageView,
+    sampler: ?vulkan.VkSampler = null,
 
     pub fn init(
         physical_device: vulkan.VkPhysicalDevice,
@@ -638,13 +639,19 @@ pub const ColorImage = struct {
 
         const image_view = try image.create_image_view(device, vulkan.VK_IMAGE_ASPECT_COLOR_BIT);
 
+        const sampler = try create_texture_sampler(physical_device, device, image);
+
         return .{
             .image = image,
             .image_view = image_view,
+            .sampler = sampler,
         };
     }
 
     pub fn deinit(self: ColorImage, device: vulkan.VkDevice) void {
+        if (self.sampler) |sampler| {
+            vulkan.vkDestroySampler(device, sampler, null);
+        }
         vulkan.vkDestroyImageView(device, self.image_view, null);
         self.image.deinit(device);
     }

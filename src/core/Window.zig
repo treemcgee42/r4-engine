@@ -112,7 +112,6 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
         .topology = .triangle_list,
         .render_pass = scene_pass,
     });
-    _ = scene_pipeline;
 
     // --- Main pass.
     var main_pass_render_target = try core.renderer.resource_system.create_resource(.{
@@ -124,7 +123,7 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
         main_pass_render_target,
     };
     var main_pass_dependencies = [_]Resource{
-        // scene_pass_productions[0],
+        scene_pass_productions[0],
     };
     var render_pass_info = Renderer.RenderPassInfo{
         .enable_imgui = false,
@@ -169,6 +168,8 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
             cimgui.igText("The viewport scene will be here. Dimensions: ");
             cimgui.igText(@ptrCast(viewport_size_string));
 
+            core.renderer.ui.?.display_image_as_resource();
+
             cimgui.igEnd();
         }
 
@@ -178,10 +179,10 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
 
         try core.renderer.begin_frame(self);
 
-        // try core.renderer.begin_renderpass(scene_pass);
-        // try core.renderer.bind_pipeline(scene_pipeline);
-        // try core.renderer.draw(3);
-        // try core.renderer.end_renderpass(scene_pass);
+        try core.renderer.begin_renderpass(scene_pass);
+        try core.renderer.bind_pipeline(scene_pipeline);
+        try core.renderer.draw(3);
+        try core.renderer.end_renderpass(scene_pass);
 
         try core.renderer.begin_renderpass(render_pass);
 

@@ -314,18 +314,18 @@ pub fn execute(self: *RenderGraph, renderer: *Renderer) !void {
 
     // ---
 
+    var command_buffer = renderer.current_frame_context.?.command_buffer_a;
+    if (self.semaphore_to_use == .b) {
+        command_buffer = renderer.current_frame_context.?.command_buffer_b;
+    }
+
+    try renderer.system.begin_command_buffer(command_buffer);
+
+    // ---
+
     var i: usize = 0;
     while (i < self.execute_steps.items.len) : (i += 1) {
         const step: *ExecuteStep = &self.execute_steps.items[i];
-
-        // ---
-
-        var command_buffer = renderer.current_frame_context.?.command_buffer_a;
-        if (self.semaphore_to_use == .b) {
-            command_buffer = renderer.current_frame_context.?.command_buffer_b;
-        }
-
-        try renderer.system.begin_command_buffer(command_buffer);
 
         // ---
 
@@ -370,37 +370,37 @@ pub fn execute(self: *RenderGraph, renderer: *Renderer) !void {
         //     0, nullptr,
         //     1, &barrier
         // );
-
-        // ---
-
-        var wait_semaphore_handle = renderer.current_frame_context.?.a_semaphore;
-        var signal_semaphore_handle = renderer.current_frame_context.?.b_semaphore;
-        var fence: ?usize = null;
-        if (self.semaphore_to_use == .b) {
-            wait_semaphore_handle = renderer.current_frame_context.?.b_semaphore;
-            signal_semaphore_handle = renderer.current_frame_context.?.a_semaphore;
-            self.semaphore_to_use = .a;
-        } else {
-            self.semaphore_to_use = .b;
-        }
-
-        if (i == 0) {
-            wait_semaphore_handle = renderer.current_frame_context.?.image_available_semaphore;
-        }
-
-        if (i == self.execute_steps.items.len - 1) {
-            signal_semaphore_handle = renderer.current_frame_context.?.render_finished_semaphore;
-            fence = renderer.current_frame_context.?.fence;
-        }
-
-        // ---
-
-        try renderer.system.end_command_buffer(command_buffer);
-        try renderer.system.submit_command_buffer(
-            &command_buffer,
-            wait_semaphore_handle,
-            signal_semaphore_handle,
-            fence,
-        );
     }
+
+    // ---
+
+    var wait_semaphore_handle = renderer.current_frame_context.?.a_semaphore;
+    var signal_semaphore_handle = renderer.current_frame_context.?.b_semaphore;
+    var fence: ?usize = null;
+    if (self.semaphore_to_use == .b) {
+        wait_semaphore_handle = renderer.current_frame_context.?.b_semaphore;
+        signal_semaphore_handle = renderer.current_frame_context.?.a_semaphore;
+        self.semaphore_to_use = .a;
+    } else {
+        self.semaphore_to_use = .b;
+    }
+
+    // if (i == 0) {
+    wait_semaphore_handle = renderer.current_frame_context.?.image_available_semaphore;
+    // }
+
+    // if (i == self.execute_steps.items.len - 1) {
+    signal_semaphore_handle = renderer.current_frame_context.?.render_finished_semaphore;
+    fence = renderer.current_frame_context.?.fence;
+    // }
+
+    // ---
+
+    try renderer.system.end_command_buffer(command_buffer);
+    try renderer.system.submit_command_buffer(
+        &command_buffer,
+        wait_semaphore_handle,
+        signal_semaphore_handle,
+        fence,
+    );
 }

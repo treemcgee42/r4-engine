@@ -9,6 +9,8 @@ pub const RenderPassInitInfo = RenderPass.RenderPassInitInfo;
 const Window = @import("../../Window.zig");
 const l0 = @import("../layer0/l0.zig");
 const l0vk = l0.vulkan;
+// tmp
+const buffer = @import("buffer.zig");
 
 allocator: std.mem.Allocator,
 
@@ -29,6 +31,8 @@ max_usable_sample_count: l0vk.VkSampleCountFlags.Bits,
 pipeline_system: PipelineSystem,
 renderpass_system: RenderPassSystem,
 sync_system: SyncSystem,
+
+tmp_image: ?buffer.ColorImage = null,
 
 pub const RenderPassHandle = usize;
 const RenderPassSystem = struct {
