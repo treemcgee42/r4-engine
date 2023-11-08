@@ -18,11 +18,11 @@ fn find_memory_type(
 
     var i: u5 = 0;
     while (i < memory_properties.memory_types.len) : (i += 1) {
-        const suitable_type = memory_type_filter & (@as(u32, @intCast(1)) << i);
-        const suitable_properties = l0vk.and_op_flags(
+        const suitable_type = (memory_type_filter & (@as(u32, @intCast(1)) << i) > 0);
+        const suitable_properties = @as(u32, @bitCast(l0vk.and_op_flags(
             memory_properties.memory_types[i].propertyFlags,
             properties,
-        ) == properties;
+        ))) == @as(u32, @bitCast(properties));
 
         if (suitable_type and suitable_properties) {
             return i;
@@ -570,7 +570,8 @@ pub const DepthImage = struct {
             depth_format,
             vulkan.VK_IMAGE_TILING_OPTIMAL,
             vulkan.VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-            vulkan.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            .{ .device_local_bit = true },
+            // vulkan.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
         );
         errdefer depth_image.deinit(device);
 
@@ -618,6 +619,8 @@ pub const ColorImage = struct {
         height: u32,
         format: vulkan.VkFormat,
         num_samples: vulkan.VkSampleCountFlagBits,
+        // vulkan.VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | vulkan.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+        usage: vulkan.VkImageUsageFlags,
     ) VulkanError!ColorImage {
         var image = try VulkanImage.init(
             physical_device,
@@ -628,8 +631,8 @@ pub const ColorImage = struct {
             num_samples,
             format,
             vulkan.VK_IMAGE_TILING_OPTIMAL,
-            vulkan.VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | vulkan.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-            vulkan.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            usage,
+            .{ .device_local_bit = true },
         );
         errdefer image.deinit(device);
 
@@ -675,7 +678,7 @@ const VulkanImage = struct {
     format: vulkan.VkFormat,
     tiling: vulkan.VkImageTiling,
     usage: vulkan.VkImageUsageFlags,
-    properties: vulkan.VkMemoryPropertyFlags,
+    properties: l0vk.VkMemoryPropertyFlags,
 
     pub fn init(
         physical_device: vulkan.VkPhysicalDevice,
@@ -687,7 +690,7 @@ const VulkanImage = struct {
         format: vulkan.VkFormat,
         tiling: vulkan.VkImageTiling,
         usage: vulkan.VkImageUsageFlags,
-        properties: vulkan.VkMemoryPropertyFlags,
+        properties: l0vk.VkMemoryPropertyFlags,
     ) VulkanError!VulkanImage {
         const image_info = vulkan.VkImageCreateInfo{
             .sType = vulkan.VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,

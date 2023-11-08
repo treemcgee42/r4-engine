@@ -7,6 +7,7 @@ const Surface = @import("renderer/Surface.zig");
 const Swapchain = @import("renderer/Swapchain.zig");
 const RenderPass = @import("renderer/RenderPass.zig");
 const Renderer = @import("renderer/Renderer.zig");
+const Resource = Renderer.Resource;
 
 const Window = @This();
 
@@ -84,11 +85,55 @@ pub fn init(core: *Core, info: *const WindowInitInfo) WindowInitError!Window {
 
 pub fn run_main_loop(self: *Window, core: *Core) !void {
     try core.renderer.enable_ui(self);
+    const window_size = self.size();
+
+    // --- Scene pass, rendering to image.
+    var scene_pass_render_target = try core.renderer.resource_system.create_resource(.{
+        .kind = .color_texture,
+        .width = window_size.width,
+        .height = window_size.height,
+    });
+    var scene_pass_productions = [_]Resource{scene_pass_render_target};
+    var scene_pass_info = Renderer.RenderPassInfo{
+        .enable_imgui = false,
+        .renderer = &core.renderer,
+        .window = self,
+        .tag = .render_to_image,
+        .produces = &scene_pass_productions,
+        .depends_on = &[_]Resource{},
+        .name = "Scene Pass",
+    };
+    const scene_pass = try core.renderer.create_renderpass(&scene_pass_info);
+    const scene_pipeline = try core.renderer.create_pipeline(.{
+        .name = "Hello Triangle",
+        .vertex_shader_filename = "shaders/compiled_output/triangle.vert.spv",
+        .fragment_shader_filename = "shaders/compiled_output/triangle.frag.spv",
+        .front_face_orientation = .clockwise,
+        .topology = .triangle_list,
+        .render_pass = scene_pass,
+    });
+    _ = scene_pipeline;
+
+    // --- Main pass.
+    var main_pass_render_target = try core.renderer.resource_system.create_resource(.{
+        .kind = .final_texture,
+        .width = window_size.width,
+        .height = window_size.height,
+    });
+    var main_pass_productions = [_]Resource{
+        main_pass_render_target,
+    };
+    var main_pass_dependencies = [_]Resource{
+        // scene_pass_productions[0],
+    };
     var render_pass_info = Renderer.RenderPassInfo{
         .enable_imgui = false,
         .renderer = &core.renderer,
         .window = self,
         .tag = .basic_primary,
+        .produces = &main_pass_productions,
+        .depends_on = &main_pass_dependencies,
+        .name = "Main Pass",
     };
     const render_pass = try core.renderer.create_renderpass(&render_pass_info);
     const pipeline = try core.renderer.create_pipeline(.{
@@ -100,6 +145,7 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
         .render_pass = render_pass,
     });
 
+    // --- State
     var viewport_open = true;
     var viewport_size: cimgui.ImVec2 = undefined;
     var viewport_size_string_buffer: [256]u8 = undefined;
@@ -132,6 +178,11 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
 
         try core.renderer.begin_frame(self);
 
+        // try core.renderer.begin_renderpass(scene_pass);
+        // try core.renderer.bind_pipeline(scene_pipeline);
+        // try core.renderer.draw(3);
+        // try core.renderer.end_renderpass(scene_pass);
+
         try core.renderer.begin_renderpass(render_pass);
 
         try core.renderer.bind_pipeline(pipeline);
@@ -140,6 +191,7 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
         try core.renderer.end_renderpass(render_pass);
 
         try core.renderer.end_frame(self);
+        // @panic("planned");
     }
 }
 

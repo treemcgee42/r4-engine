@@ -21,6 +21,7 @@ pub fn init(renderer: *Renderer, window: *Window) !Ui {
             .width = window_size.width,
             .height = window_size.height,
         },
+        .name = "ImGui",
     };
     const vulkan_renderpass_handle = try renderer.system.create_renderpass(&renderpass_init_info);
 

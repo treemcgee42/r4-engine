@@ -41,7 +41,15 @@ fn debug_callback(
     _ = message_type;
     _ = message_severity;
 
-    std.debug.print("validation layer: {s}\n", .{p_callback_data.*.pMessage});
+    std.log.err("Vulkan validation layer", .{});
+
+    // Stream the message, replacing "|" with "\n\t" on the fly.
+    const original_message = std.mem.span(p_callback_data.*.pMessage);
+    var message_stream = std.mem.tokenize(u8, original_message, "|");
+
+    while (message_stream.next()) |part| {
+        std.debug.print("\t{s}\n", .{part});
+    }
 
     return vulkan.VK_FALSE;
 }

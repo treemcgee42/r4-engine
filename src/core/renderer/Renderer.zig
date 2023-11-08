@@ -16,6 +16,7 @@ allocator: std.mem.Allocator,
 system: VulkanSystem,
 pipelines: std.ArrayList(Pipeline),
 render_passes: std.ArrayList(RenderPass),
+resource_system: ResourceSystem,
 render_graph: ?RenderGraph,
 command_buffer: CommandBuffer,
 
@@ -60,6 +61,7 @@ pub fn init(allocator: std.mem.Allocator, backend: Backend) !Renderer {
         .system = system,
         .pipelines = std.ArrayList(Pipeline).init(allocator),
         .render_passes = render_passes,
+        .resource_system = ResourceSystem.init(allocator),
         .render_graph = null,
         .command_buffer = command_buffer,
 
@@ -78,6 +80,7 @@ pub fn deinit(self: *Renderer) void {
         self.render_passes.items[i].deinit(self);
     }
     self.render_passes.deinit();
+    self.resource_system.deinit();
 
     self.pipelines.deinit();
 
@@ -308,7 +311,9 @@ pub fn end_renderpass(self: *Renderer, render_pass: RenderPassHandle) !void {
     });
 }
 
-pub const Resource = struct {
+// ---
+
+pub const ResourceInfo = struct {
     kind: enum {
         color_texture,
         /// What will be shown on screen.
@@ -317,6 +322,33 @@ pub const Resource = struct {
     width: u32,
     height: u32,
 };
+
+pub const Resource = usize;
+
+pub const ResourceSystem = struct {
+    resources: std.ArrayList(ResourceInfo),
+
+    pub fn init(allocator: std.mem.Allocator) ResourceSystem {
+        return .{
+            .resources = std.ArrayList(ResourceInfo).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *ResourceSystem) void {
+        self.resources.deinit();
+    }
+
+    pub fn get_resource_from_handle(self: *ResourceSystem, handle: usize) *ResourceInfo {
+        return &self.resources.items[handle];
+    }
+
+    pub fn create_resource(self: *ResourceSystem, info: ResourceInfo) !Resource {
+        try self.resources.append(info);
+        return self.resources.items.len - 1;
+    }
+};
+
+// ---
 
 pub fn enable_ui(self: *Renderer, window: *Window) !void {
     self.ui = try Ui.init(self, window);

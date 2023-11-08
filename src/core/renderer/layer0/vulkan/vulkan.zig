@@ -255,7 +255,7 @@ pub const VK_NULL_HANDLE = vulkan.VK_NULL_HANDLE;
 
 pub fn and_op_flags(lhs: anytype, rhs: anytype) @TypeOf(lhs) {
     comptime {
-        @TypeOf(lhs) == @TypeOf(rhs);
+        std.debug.assert(@TypeOf(lhs) == @TypeOf(rhs));
     }
     return @bitCast(@as(u32, @bitCast(lhs)) & @as(u32, @bitCast(rhs)));
 }

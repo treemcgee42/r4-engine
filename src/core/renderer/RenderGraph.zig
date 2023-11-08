@@ -207,6 +207,16 @@ pub fn init(renderer: *Renderer, command_buffer: *const CommandBuffer) !RenderGr
     // ---
 
     std.log.info("rendergraph: created {d} nodes (root {d})", .{ nodes.items.len, root_node });
+    i = 0;
+    while (i < nodes.items.len) : (i += 1) {
+        const name = if (ui_node != null and i == ui_node.?) "ui" else renderer.get_renderpass_from_handle(nodes.items[i].render_pass).name;
+        std.log.info("\t{d}: rp {s}, {d} parents, {d} children", .{
+            i,
+            name,
+            nodes.items[i].parents.items.len,
+            nodes.items[i].children.items.len,
+        });
+    }
 
     return .{
         .nodes = nodes,
@@ -252,18 +262,18 @@ pub fn compile(self: *RenderGraph, renderer: *Renderer) !void {
             vkrp_handle = renderer.ui.?.vulkan_renderpass_handle;
         } else {
             const rp = renderer.get_renderpass_from_handle(node.render_pass);
+            const production = renderer.resource_system.get_resource_from_handle(rp.produces.items[0]);
             const vkrp_init_info = .{
                 .system = &renderer.system,
                 .window = renderer.current_frame_context.?.window,
 
                 .imgui_enabled = rp.enable_imgui,
-                .tag = switch (rp.tag) {
-                    .basic_primary => .basic_primary,
-                },
+                .tag = rp.tag,
                 .render_area = .{
-                    .width = rp.produces.items[0].width,
-                    .height = rp.produces.items[0].height,
+                    .width = production.width,
+                    .height = production.height,
                 },
+                .name = rp.name,
             };
             vkrp_handle = try renderer.system.create_renderpass(&vkrp_init_info);
             try self.rp_handle_to_real_rp.put(node.render_pass, vkrp_handle);
@@ -291,6 +301,11 @@ pub fn compile(self: *RenderGraph, renderer: *Renderer) !void {
     }
 
     std.log.info("rendergraph: compiled {d} steps", .{self.execute_steps.items.len});
+    i = 0;
+    while (i < self.execute_steps.items.len) : (i += 1) {
+        const step = &self.execute_steps.items[i];
+        std.log.info("\t{s}: {d} nodes", .{ renderer.system.get_renderpass_from_handle(step.renderpass).name, step.nodes.len });
+    }
 }
 
 pub fn execute(self: *RenderGraph, renderer: *Renderer) !void {
@@ -315,8 +330,9 @@ pub fn execute(self: *RenderGraph, renderer: *Renderer) !void {
         // ---
 
         const vkrp = renderer.system.get_renderpass_from_handle(step.renderpass);
+        // TODO: we shouldn't be setting this here.
         var clear = false;
-        if (i == 0) {
+        if (i == 0 or vkrp.load_op_clear) {
             clear = true;
         }
         vkrp.begin(command_buffer, renderer.current_frame_context.?.image_index, clear);
@@ -332,6 +348,28 @@ pub fn execute(self: *RenderGraph, renderer: *Renderer) !void {
         }
 
         vkrp.end(command_buffer);
+
+        // ---
+
+        // // Pipeline barrier to ensure proper ordering between the render passes
+        // VkImageMemoryBarrier barrier = {};
+        // barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        // barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        // barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        // barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        // barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        // barrier.image = ...; // The image you're transitioning
+        // barrier.subresourceRange = ...; // Define the range
+        //
+        // vkCmdPipelineBarrier(
+        //     commandBuffer,
+        //     VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, // Source stage
+        //     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, // Destination stage
+        //     0,
+        //     0, nullptr,
+        //     0, nullptr,
+        //     1, &barrier
+        // );
 
         // ---
 

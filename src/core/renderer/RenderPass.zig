@@ -17,11 +17,13 @@ enable_imgui: bool,
 depends_on: std.ArrayList(Resource),
 produces: std.ArrayList(Resource),
 tag: RenderPassTag,
+name: []const u8,
 
 const RenderPass = @This();
 
 pub const RenderPassTag = enum {
     basic_primary,
+    render_to_image,
 };
 
 pub const RenderPassInfo = struct {
@@ -29,20 +31,21 @@ pub const RenderPassInfo = struct {
     window: *Window,
     enable_imgui: bool,
     tag: RenderPassTag,
+    produces: []Resource,
+    depends_on: []Resource,
+    name: []const u8,
 };
 
 pub fn init(info: *RenderPassInfo) !RenderPass {
     var depends_on = std.ArrayList(Resource).init(info.renderer.allocator);
+    var i: usize = 0;
+    while (i < info.depends_on.len) : (i += 1) {
+        try depends_on.append(info.depends_on[i]);
+    }
     var produces = std.ArrayList(Resource).init(info.renderer.allocator);
-    switch (info.tag) {
-        .basic_primary => {
-            const window_size = info.window.size();
-            try produces.append(Resource{
-                .kind = .final_texture,
-                .width = window_size.width,
-                .height = window_size.height,
-            });
-        },
+    i = 0;
+    while (i < info.produces.len) : (i += 1) {
+        try produces.append(info.produces[i]);
     }
 
     if (info.enable_imgui) {
@@ -57,6 +60,7 @@ pub fn init(info: *RenderPassInfo) !RenderPass {
         .depends_on = depends_on,
         .produces = produces,
         .tag = info.tag,
+        .name = info.name,
     };
 }
 

@@ -6,6 +6,7 @@ const Swapchain = @import("./Swapchain.zig");
 const VulkanSystem = @import("./VulkanSystem.zig");
 const RenderPassInfo = @import("../RenderPass.zig").RenderPassInfo;
 const buffer = @import("buffer.zig");
+const RenderPassTag = @import("../RenderPass.zig").RenderPassTag;
 
 const RenderPass = @This();
 
@@ -14,9 +15,12 @@ render_pass: l0vk.VkRenderPass,
 images: []Image,
 framebuffers: []l0vk.VkFramebuffer,
 render_area: RenderArea,
+load_op_clear: bool,
 
 imgui_enabled: bool,
 imgui_descriptor_pool: l0vk.VkDescriptorPool = null,
+
+name: []const u8,
 
 const Image = union(enum) {
     color: buffer.ColorImage,
@@ -32,31 +36,49 @@ pub const RenderPassInitInfo = struct {
     window: *Window,
 
     imgui_enabled: bool,
-    tag: enum {
-        basic_primary,
-    },
+    tag: RenderPassTag,
     render_area: RenderArea,
+    name: []const u8,
 };
 
 pub fn init(info: *const RenderPassInitInfo) !RenderPass {
     var system = info.system;
     var swapchain = &info.window.swapchain.swapchain;
 
+    var load_op_clear = true;
+
     var render_pass: l0vk.VkRenderPass = undefined;
     switch (info.tag) {
         .basic_primary => {
-            var clear = true;
             if (info.imgui_enabled) {
-                clear = false;
+                load_op_clear = false;
             }
-            render_pass = try build_basic_primary_renderpass(system, swapchain, clear);
+            render_pass = try build_basic_primary_renderpass(system, swapchain, load_op_clear);
+        },
+        .render_to_image => {
+            render_pass = try build_render_to_image_renderpass(system, swapchain);
         },
     }
 
     var images: []Image = undefined;
     switch (info.tag) {
         .basic_primary => {
+            // Just use the swapchain images.
             images = try system.allocator.alloc(Image, 0);
+        },
+        .render_to_image => {
+            images = try system.allocator.alloc(Image, 1);
+            const image = try buffer.ColorImage.init(
+                system.physical_device,
+                system.logical_device,
+                info.render_area.width,
+                info.render_area.height,
+                @intFromEnum(info.window.swapchain.swapchain.swapchain_image_format),
+                @bitCast(l0vk.VkSampleCountFlags{ .bit_1 = true }),
+                @bitCast(l0vk.VkImageUsageFlags{ .color_attachment = true, .sampled = true }),
+            );
+            std.debug.print("image handle: {x}\n", .{image.image.image.?});
+            images[0] = .{ .color = image };
         },
     }
 
@@ -64,6 +86,9 @@ pub fn init(info: *const RenderPassInitInfo) !RenderPass {
     switch (info.tag) {
         .basic_primary => {
             framebuffers = try create_basic_primary_framebuffers(system, swapchain, render_pass);
+        },
+        .render_to_image => {
+            framebuffers = try create_render_to_image_framebuffers(system, images, render_pass);
         },
     }
 
@@ -73,9 +98,11 @@ pub fn init(info: *const RenderPassInitInfo) !RenderPass {
         .images = images,
         .framebuffers = framebuffers,
         .render_area = info.render_area,
+        .load_op_clear = load_op_clear,
 
         // Potentially updated before returning.
         .imgui_enabled = false,
+        .name = info.name,
     };
 
     if (info.imgui_enabled) {
@@ -400,6 +427,70 @@ fn build_basic_primary_renderpass(
     return render_pass;
 }
 
+fn build_render_to_image_color_attachment(swapchain: *Swapchain) !AttachmentAndRef {
+    const color_attachment = l0vk.VkAttachmentDescription{
+        .format = swapchain.swapchain_image_format,
+        .samples = .VK_SAMPLE_COUNT_1_BIT,
+        .loadOp = .clear,
+        .storeOp = .store,
+        .stencilLoadOp = .dont_care,
+        .stencilStoreOp = .dont_care,
+        .initialLayout = .undefined,
+        .finalLayout = .shader_read_only_optimal,
+    };
+
+    const color_attachment_ref = l0vk.VkAttachmentReference{
+        .attachment = 0,
+        .layout = .color_attachment_optimal,
+    };
+
+    return AttachmentAndRef{
+        .attachment = color_attachment,
+        .ref = color_attachment_ref,
+    };
+}
+
+fn build_render_to_image_renderpass(
+    system: *VulkanSystem,
+    swapchain: *Swapchain,
+) !l0vk.VkRenderPass {
+    // --- Attachments.
+
+    const color_attachment = try build_render_to_image_color_attachment(swapchain);
+    const color_attachments = [_]l0vk.VkAttachmentReference{color_attachment.ref};
+
+    // --- Subpass.
+
+    const subpass = l0vk.VkSubpassDescription{
+        .pipelineBindPoint = .graphics,
+        .colorAttachments = &color_attachments,
+        .inputAttachments = &[0]l0vk.VkAttachmentReference{},
+        .resolveAttachments = &[0]l0vk.VkAttachmentReference{},
+        .pDepthStencilAttachment = null,
+        .preserveAttachments = &[0]u32{},
+    };
+
+    // ---
+
+    const attachments = [_]l0vk.VkAttachmentDescription{
+        color_attachment.attachment,
+    };
+
+    const render_pass_info = l0vk.VkRenderPassCreateInfo{
+        .attachments = &attachments,
+        .subpasses = &[_]l0vk.VkSubpassDescription{subpass},
+        .dependencies = &[_]l0vk.VkSubpassDependency{},
+    };
+
+    const render_pass = try l0vk.vkCreateRenderPass(
+        system.logical_device,
+        &render_pass_info,
+        null,
+    );
+
+    return render_pass;
+}
+
 // --- }}}1
 
 // --- Framebuffers. {{{1
@@ -437,26 +528,24 @@ fn create_basic_primary_framebuffers(
     return framebuffers;
 }
 
-fn create_basic_deferred_framebuffers(
-    allocator: std.mem.Allocator,
+fn create_render_to_image_framebuffers(
     system: *VulkanSystem,
-    width: u32,
-    height: u32,
-    image_view: l0vk.VkImageView,
+    images: []Image,
     render_pass: l0vk.VkRenderPass,
 ) ![]l0vk.VkFramebuffer {
+    const allocator = system.allocator;
     var framebuffers = try allocator.alloc(l0vk.VkFramebuffer, 1);
     errdefer allocator.free(framebuffers);
 
     const attachments = [_]l0vk.VkImageView{
-        image_view,
+        images[0].color.image_view,
     };
 
     var framebuffer_info = l0vk.VkFramebufferCreateInfo{
         .renderPass = render_pass,
         .attachments = &attachments,
-        .width = width,
-        .height = height,
+        .width = images[0].color.image.width,
+        .height = images[0].color.image.height,
         .layers = 1,
     };
 
