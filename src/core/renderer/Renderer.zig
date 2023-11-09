@@ -48,7 +48,7 @@ pub const CurrentFrameContext = struct {
 const Renderer = @This();
 
 pub fn init(allocator: std.mem.Allocator, backend: Backend) !Renderer {
-    const system = switch (backend) {
+    var system = switch (backend) {
         .vulkan => try VulkanSystem.init(allocator),
     };
 
@@ -352,4 +352,5 @@ pub const ResourceSystem = struct {
 
 pub fn enable_ui(self: *Renderer, window: *Window) !void {
     self.ui = try Ui.init(self, window);
+    self.system.tmp_renderer = self;
 }

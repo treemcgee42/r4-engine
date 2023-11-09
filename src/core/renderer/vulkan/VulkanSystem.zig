@@ -11,6 +11,7 @@ const l0 = @import("../layer0/l0.zig");
 const l0vk = l0.vulkan;
 // tmp
 const buffer = @import("buffer.zig");
+const Renderer = @import("../Renderer.zig");
 
 allocator: std.mem.Allocator,
 
@@ -33,6 +34,7 @@ renderpass_system: RenderPassSystem,
 sync_system: SyncSystem,
 
 tmp_image: ?buffer.ColorImage = null,
+tmp_renderer: ?*Renderer = null,
 
 pub const RenderPassHandle = usize;
 const RenderPassSystem = struct {

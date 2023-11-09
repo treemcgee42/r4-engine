@@ -21,6 +21,7 @@ imgui_enabled: bool,
 imgui_descriptor_pool: l0vk.VkDescriptorPool = null,
 
 name: []const u8,
+tag: RenderPassTag,
 
 const Image = union(enum) {
     color: buffer.ColorImage,
@@ -77,7 +78,6 @@ pub fn init(info: *const RenderPassInitInfo) !RenderPass {
                 @bitCast(l0vk.VkSampleCountFlags{ .bit_1 = true }),
                 @bitCast(l0vk.VkImageUsageFlags{ .color_attachment = true, .sampled = true }),
             );
-            std.debug.print("image handle: {x}\n", .{image.image.image.?});
             images[0] = .{ .color = image };
             info.system.tmp_image = image;
         },
@@ -104,6 +104,7 @@ pub fn init(info: *const RenderPassInitInfo) !RenderPass {
         // Potentially updated before returning.
         .imgui_enabled = false,
         .name = info.name,
+        .tag = info.tag,
     };
 
     if (info.imgui_enabled) {
@@ -338,7 +339,47 @@ pub fn resize_callback(
     }
     allocator.free(self.framebuffers);
 
-    self.framebuffers = try create_basic_primary_framebuffers(system, swapchain, self.render_pass);
+    if (self.tag != .basic_primary) {
+        i = 0;
+        while (i < self.images.len) : (i += 1) {
+            self.images[i].color.deinit(system.logical_device);
+        }
+    }
+
+    // ---
+
+    switch (self.tag) {
+        .basic_primary => {
+            self.framebuffers = try create_basic_primary_framebuffers(
+                system,
+                swapchain,
+                self.render_pass,
+            );
+        },
+        .render_to_image => {
+            self.images[0] = .{
+                .color = try buffer.ColorImage.init(
+                    system.physical_device,
+                    system.logical_device,
+                    new_render_area.width,
+                    new_render_area.height,
+                    @intFromEnum(swapchain.swapchain_image_format),
+                    @bitCast(l0vk.VkSampleCountFlags{ .bit_1 = true }),
+                    @bitCast(l0vk.VkImageUsageFlags{ .color_attachment = true, .sampled = true }),
+                ),
+            };
+            system.tmp_image = self.images[0].color;
+            system.tmp_renderer.?.ui.?.tmp_uploaded_image = false;
+            self.framebuffers = try create_render_to_image_framebuffers(
+                system,
+                self.images,
+                self.render_pass,
+            );
+        },
+    }
+
+    // ---
+
     self.render_area = new_render_area;
 }
 
