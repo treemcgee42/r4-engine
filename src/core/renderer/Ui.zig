@@ -39,7 +39,7 @@ pub fn init(renderer: *Renderer, window: *Window) !Ui {
     };
 }
 
-pub fn display_image_as_resource(self: *Ui) void {
+pub fn display_image_as_resource(self: *Ui, size: cimgui.ImVec2) void {
     if (self.tmp_renderer.system.tmp_image == null) {
         return;
     }
@@ -56,10 +56,7 @@ pub fn display_image_as_resource(self: *Ui) void {
 
     cimgui.igImage(
         @ptrCast(self.tmp_imgui_return.?),
-        cimgui.ImVec2{
-            .x = @floatFromInt(image.image.width),
-            .y = @floatFromInt(image.image.height),
-        },
+        size,
         cimgui.ImVec2{ // default uv0
             .x = 0,
             .y = 0,

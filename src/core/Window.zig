@@ -147,8 +147,11 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
     // --- State
     var viewport_open = true;
     var viewport_size: cimgui.ImVec2 = undefined;
-    var viewport_size_string_buffer: [256]u8 = undefined;
-    var viewport_size_string: []u8 = undefined;
+    var new_viewport_size_a: cimgui.ImVec2 = undefined;
+    var new_viewport_size_b: cimgui.ImVec2 = undefined;
+    var new_viewport_size: cimgui.ImVec2 = undefined;
+    // var viewport_size_string_buffer: [256]u8 = undefined;
+    // var viewport_size_string: []u8 = undefined;
 
     while (glfw.glfwWindowShouldClose(self.window) == 0) {
         glfw.glfwPollEvents();
@@ -162,13 +165,19 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
         {
             _ = cimgui.igBegin("Viewport", &viewport_open, 0);
             cimgui.igGetWindowSize(&viewport_size);
-            viewport_size_string = std.fmt.bufPrint(&viewport_size_string_buffer, "{d}x{d}", .{ viewport_size.x, viewport_size.y }) catch unreachable;
-            viewport_size_string_buffer[viewport_size_string.len] = 0;
+            cimgui.igGetWindowContentRegionMin(&new_viewport_size_a);
+            cimgui.igGetWindowContentRegionMax(&new_viewport_size_b);
+            new_viewport_size = cimgui.ImVec2{
+                .x = new_viewport_size_b.x - new_viewport_size_a.x,
+                .y = new_viewport_size_b.y - new_viewport_size_a.y,
+            };
+            // viewport_size_string = std.fmt.bufPrint(&viewport_size_string_buffer, "{d}x{d}", .{ viewport_size.x, viewport_size.y }) catch unreachable;
+            // viewport_size_string_buffer[viewport_size_string.len] = 0;
+            //
+            // cimgui.igText("The viewport scene will be here. Dimensions: ");
+            // cimgui.igText(@ptrCast(viewport_size_string));
 
-            cimgui.igText("The viewport scene will be here. Dimensions: ");
-            cimgui.igText(@ptrCast(viewport_size_string));
-
-            core.renderer.ui.?.display_image_as_resource();
+            core.renderer.ui.?.display_image_as_resource(new_viewport_size);
 
             cimgui.igEnd();
         }
