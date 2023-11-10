@@ -350,7 +350,7 @@ pub const ResourceSystem = struct {
 
 // ---
 
-pub fn enable_ui(self: *Renderer, window: *Window) !void {
-    self.ui = try Ui.init(self, window);
+pub fn enable_ui(self: *Renderer, window: *Window, config_flags: Ui.ConfigFlags) !void {
+    self.ui = try Ui.init(self, window, config_flags);
     self.system.tmp_renderer = self;
 }

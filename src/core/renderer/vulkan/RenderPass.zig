@@ -36,7 +36,8 @@ pub const RenderPassInitInfo = struct {
     system: *VulkanSystem,
     window: *Window,
 
-    imgui_enabled: bool,
+    imgui_enabled: bool = false,
+    imgui_config_flags: c_int = 0,
     tag: RenderPassTag,
     render_area: RenderArea,
     name: []const u8,
@@ -108,7 +109,7 @@ pub fn init(info: *const RenderPassInitInfo) !RenderPass {
     };
 
     if (info.imgui_enabled) {
-        try to_return.setup_imgui(system, info.window);
+        try to_return.setup_imgui(system, info.window, info.imgui_config_flags);
         std.log.info("imgui initialized", .{});
     }
 
@@ -138,7 +139,12 @@ pub fn deinit(self: *RenderPass, allocator: std.mem.Allocator, system: *VulkanSy
     l0vk.vkDestroyRenderPass(system.logical_device, self.render_pass, null);
 }
 
-pub fn setup_imgui(self: *RenderPass, system: *VulkanSystem, window: *Window) !void {
+pub fn setup_imgui(
+    self: *RenderPass,
+    system: *VulkanSystem,
+    window: *Window,
+    config_flags: c_int,
+) !void {
     self.imgui_enabled = true;
 
     // --- Descriptor pool.
@@ -207,6 +213,8 @@ pub fn setup_imgui(self: *RenderPass, system: *VulkanSystem, window: *Window) !v
     // --- Initialize imgui library.
 
     _ = cimgui.igCreateContext(null);
+    var io = cimgui.igGetIO();
+    io.*.ConfigFlags = config_flags;
     _ = cimgui.ImGui_ImplGlfw_InitForVulkan(@ptrCast(window.window), true);
 
     var vulkan_init_info = cimgui.ImGui_ImplVulkan_InitInfo{

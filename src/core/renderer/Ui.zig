@@ -12,7 +12,21 @@ tmp_uploaded_image: bool = false,
 tmp_renderer: *Renderer,
 tmp_imgui_return: ?vulkan.VkDescriptorSet = null,
 
-pub fn init(renderer: *Renderer, window: *Window) !Ui {
+pub const ConfigFlags = packed struct(c_int) {
+    nav_enable_keyboard: bool = false,
+    nav_enable_gamepad: bool = false,
+    nav_enable_set_mouse_pos: bool = false,
+    nav_no_capture_keyboard: bool = false,
+
+    no_mouse: bool = false,
+    no_mouse_cursor_change: bool = false,
+    docking_enabled: bool = false,
+    viewports_enabled: bool = false,
+
+    _: u24 = 0,
+};
+
+pub fn init(renderer: *Renderer, window: *Window, config_flags: ConfigFlags) !Ui {
     // --- Construct the Vulkan renderpass.
     // This needs to happen now so ImGUI can start receiving commands after this call.
 
@@ -22,6 +36,7 @@ pub fn init(renderer: *Renderer, window: *Window) !Ui {
         .window = window,
 
         .imgui_enabled = true,
+        .imgui_config_flags = @bitCast(config_flags),
         .tag = .basic_primary,
         .render_area = .{
             .width = window_size.width,

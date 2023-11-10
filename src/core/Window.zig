@@ -84,7 +84,7 @@ pub fn init(core: *Core, info: *const WindowInitInfo) WindowInitError!Window {
 }
 
 pub fn run_main_loop(self: *Window, core: *Core) !void {
-    try core.renderer.enable_ui(self);
+    try core.renderer.enable_ui(self, .{ .docking_enabled = true });
     const window_size = self.size();
 
     // --- Scene pass, rendering to image.
