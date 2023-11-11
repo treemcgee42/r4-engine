@@ -94,3 +94,93 @@ pub fn display_image_as_resource(self: *Ui, size: cimgui.ImVec2) void {
         },
     );
 }
+
+pub const ImGuiWindowFlags = packed struct(c_int) {
+    no_title_bar: bool = false,
+    no_resize: bool = false,
+    no_move: bool = false,
+    no_scrollbar: bool = false,
+
+    no_scroll_with_mouse: bool = false,
+    no_collapse: bool = false,
+    always_auto_resize: bool = false,
+    no_background: bool = false,
+
+    no_saved_settings: bool = false,
+    no_mouse_inputs: bool = false,
+    menu_bar: bool = false,
+    horizontal_scrollbar: bool = false,
+
+    no_focus_on_appearing: bool = false,
+    no_bring_to_front_on_focus: bool = false,
+    always_vertical_scrollbar: bool = false,
+    always_horizontal_scrollbar: bool = false,
+
+    no_nav_inputs: bool = false,
+    no_nav_focus: bool = false,
+    unsaved_document: bool = false,
+    no_docking: bool = false,
+
+    _: u12 = 0,
+
+    pub fn no_nav() ImGuiWindowFlags {
+        return .{
+            .no_nav_inputs = true,
+            .no_nav_focus = true,
+        };
+    }
+
+    pub fn no_decoration() ImGuiWindowFlags {
+        return .{
+            .no_title_bar = true,
+            .no_resize = true,
+            .no_move = true,
+            .no_collapse = true,
+        };
+    }
+
+    pub fn no_inputs() ImGuiWindowFlags {
+        return .{
+            .no_mouse_inputs = true,
+            .no_nav_inputs = true,
+            .no_nav_focus = true,
+        };
+    }
+};
+
+pub fn create_full_window_dock_space(self: *const Ui) void {
+    _ = self;
+    // --- Create a fullscreen window.
+
+    const viewport = cimgui.igGetMainViewport();
+    cimgui.igSetNextWindowPos(viewport.*.WorkPos, 0, .{ .x = 0, .y = 0 });
+    cimgui.igSetNextWindowSize(viewport.*.WorkSize, 0);
+    cimgui.igSetNextWindowViewport(viewport.*.ID);
+    cimgui.igPushStyleVar_Float(cimgui.ImGuiStyleVar_WindowRounding, 0.0);
+    cimgui.igPushStyleVar_Float(cimgui.ImGuiStyleVar_WindowBorderSize, 0.0);
+    const window_flags = ImGuiWindowFlags{
+        .menu_bar = true,
+        .no_docking = true,
+        .no_title_bar = true,
+        .no_collapse = true,
+        .no_resize = true,
+        .no_move = true,
+        .no_bring_to_front_on_focus = true,
+        .no_nav_focus = true,
+    };
+
+    // ChatGPT:
+    // Important: note that we proceed even if Begin() returns false (aka window is collapsed).
+    // This is because we want to keep our DockSpace() active. If a DockSpace() is inactive,
+    // all active windows docked into it will lose their parent and become undocked.
+    // We cannot preserve the docking relationship between an active window and an inactive docking, otherwise
+    // any change of dockspace/settings would lead to windows being stuck in limbo and never being visible.
+    cimgui.igPushStyleVar_Vec2(cimgui.ImGuiStyleVar_WindowPadding, cimgui.ImVec2{ .x = 0.0, .y = 0.0 });
+    _ = cimgui.igBegin("Dock space", null, @bitCast(window_flags));
+    cimgui.igPopStyleVar(1);
+
+    const dockspace_id = cimgui.igGetID_Str("Dock space");
+    _ = cimgui.igDockSpace(dockspace_id, cimgui.ImVec2{ .x = 0.0, .y = 0.0 }, cimgui.ImGuiDockNodeFlags_None, null);
+
+    cimgui.igEnd();
+}

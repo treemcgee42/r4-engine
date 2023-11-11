@@ -152,6 +152,8 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
     var new_viewport_size: cimgui.ImVec2 = undefined;
     // var viewport_size_string_buffer: [256]u8 = undefined;
     // var viewport_size_string: []u8 = undefined;
+    var left_panel_open = true;
+    var right_panel_open = true;
 
     while (glfw.glfwWindowShouldClose(self.window) == 0) {
         glfw.glfwPollEvents();
@@ -160,7 +162,17 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
 
         core.renderer.begin_imgui();
 
-        cimgui.igShowDemoWindow(&self.show_imgui_demo_window);
+        core.renderer.ui.?.create_full_window_dock_space();
+
+        {
+            _ = cimgui.igBegin("Left panel", &left_panel_open, 0);
+        }
+
+        {
+            _ = cimgui.igBegin("Bottom panel", &right_panel_open, 0);
+        }
+
+        // cimgui.igShowDemoWindow(&self.show_imgui_demo_window);
 
         {
             _ = cimgui.igBegin("Viewport", &viewport_open, 0);
@@ -171,11 +183,6 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
                 .x = new_viewport_size_b.x - new_viewport_size_a.x,
                 .y = new_viewport_size_b.y - new_viewport_size_a.y,
             };
-            // viewport_size_string = std.fmt.bufPrint(&viewport_size_string_buffer, "{d}x{d}", .{ viewport_size.x, viewport_size.y }) catch unreachable;
-            // viewport_size_string_buffer[viewport_size_string.len] = 0;
-            //
-            // cimgui.igText("The viewport scene will be here. Dimensions: ");
-            // cimgui.igText(@ptrCast(viewport_size_string));
 
             core.renderer.ui.?.display_image_as_resource(new_viewport_size);
 
