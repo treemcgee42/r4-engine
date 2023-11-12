@@ -154,6 +154,7 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
     // var viewport_size_string: []u8 = undefined;
     var left_panel_open = true;
     var right_panel_open = true;
+    var background_color: [3]f32 = .{ 0.1, 0.1, 0.1 };
 
     while (glfw.glfwWindowShouldClose(self.window) == 0) {
         glfw.glfwPollEvents();
@@ -166,10 +167,27 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
 
         {
             _ = cimgui.igBegin("Left panel", &left_panel_open, 0);
+            cimgui.igEnd();
         }
 
         {
             _ = cimgui.igBegin("Bottom panel", &right_panel_open, 0);
+
+            // Scene settings.
+            cimgui.igText("Scene settings");
+            // Background color
+            _ = cimgui.igColorEdit3("Background color", &background_color, 0);
+            core.renderer.set_renderpass_clear_color(
+                scene_pass,
+                .{
+                    background_color[0],
+                    background_color[1],
+                    background_color[2],
+                    1.0,
+                },
+            );
+
+            cimgui.igEnd();
         }
 
         // cimgui.igShowDemoWindow(&self.show_imgui_demo_window);

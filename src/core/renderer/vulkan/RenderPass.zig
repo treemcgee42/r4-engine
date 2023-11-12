@@ -22,6 +22,7 @@ imgui_descriptor_pool: l0vk.VkDescriptorPool = null,
 
 name: []const u8,
 tag: RenderPassTag,
+clear_color: [4]f32 = .{ 0, 0, 0, 1 },
 
 const Image = union(enum) {
     color: buffer.ColorImage,
@@ -283,7 +284,7 @@ pub fn begin(
     var clear_values = [_]l0vk.VkClearValue{
         .{
             .color = .{
-                .float32 = [_]f32{ 0.0, 0.0, 0.0, 1.0 },
+                .float32 = self.clear_color,
             },
         },
         .{

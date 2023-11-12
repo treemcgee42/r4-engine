@@ -5,9 +5,10 @@ const Renderer = @import("./Renderer.zig");
 const VirtualPipeline = Renderer.Pipeline;
 const VirtualPipelineHandle = Renderer.PipelineHandle;
 const Swapchain = @import("./Swapchain.zig");
+const RenderPassHandle = Renderer.RenderPassHandle;
 
 allocator: std.mem.Allocator,
-commands: std.MultiArrayList(Command),
+commands: std.ArrayList(Command),
 extra_data: std.ArrayList(usize),
 
 const CommandBuffer = @This();
@@ -15,47 +16,43 @@ const CommandBuffer = @This();
 pub fn init(allocator: std.mem.Allocator) !CommandBuffer {
     return .{
         .allocator = allocator,
-        .commands = std.MultiArrayList(Command){},
+        .commands = std.ArrayList(Command).init(allocator),
         .extra_data = std.ArrayList(usize).init(allocator),
     };
 }
 
 pub fn deinit(self: *CommandBuffer) void {
-    self.commands.deinit(self.allocator);
+    self.commands.deinit();
     self.extra_data.deinit();
 }
 
-const Command = struct {
-    kind: CommandKind,
-    data: usize,
-
-    const CommandKind = enum {
-        // `data` is a `PipelineHandle`.
-        bind_pipeline,
-        // `data` is the number of vertices to draw.
-        draw,
-        // `data` is a `RenderPassHandle`.
-        begin_render_pass,
-        // `data` is a `RenderPassHandle`.
-        end_render_pass,
-    };
+const Command = union(enum) {
+    bind_pipeline: VirtualPipelineHandle,
+    // Number of vertices to draw.
+    draw: usize,
+    begin_render_pass: RenderPassHandle,
+    end_render_pass: RenderPassHandle,
 };
 
 pub fn reset(self: *CommandBuffer) void {
-    self.commands.len = 0;
+    self.commands.items.len = 0;
     self.extra_data.items.len = 0;
 }
 
-pub fn execute_command(self: *CommandBuffer, command_handle: usize, renderer: *Renderer, command_buffer: vulkan.VkCommandBuffer) !void {
-    const kind = self.commands.items(.kind)[command_handle];
-    const data = self.commands.items(.data)[command_handle];
+pub fn execute_command(
+    self: *CommandBuffer,
+    command_handle: usize,
+    renderer: *Renderer,
+    command_buffer: vulkan.VkCommandBuffer,
+) !void {
+    const command = self.commands.items[command_handle];
 
-    switch (kind) {
+    switch (command) {
         .bind_pipeline => {
-            try execute_bind_pipeline(renderer, data, command_buffer);
+            try execute_bind_pipeline(renderer, command.bind_pipeline, command_buffer);
         },
         .draw => {
-            execute_draw(renderer, data, command_buffer);
+            execute_draw(renderer, command.draw, command_buffer);
         },
         else => unreachable,
     }

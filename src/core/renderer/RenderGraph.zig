@@ -4,7 +4,7 @@ const CommandBuffer = @import("CommandBuffer.zig");
 const Resource = Renderer.Resource;
 const VirtualRenderPass = @import("RenderPass.zig");
 const VirtualRenderPassHandle = Renderer.RenderPassHandle;
-const VulkanRenderPassHandle = Renderer.RenderPassHandle;
+const VulkanRenderPassHandle = @import("vulkan/VulkanSystem.zig").RenderPassHandle;
 
 const RenderGraph = @This();
 
@@ -19,7 +19,7 @@ execute_steps: std.ArrayList(ExecuteStep),
 /// since virtual pipelines are defined relative to a virtual renderpass.
 ///
 /// Populated during grpah compilation.
-rp_handle_to_real_rp: std.AutoHashMap(usize, VulkanRenderPassHandle),
+rp_handle_to_real_rp: std.AutoHashMap(VirtualRenderPassHandle, VulkanRenderPassHandle),
 
 semaphore_to_use: enum { a, b },
 
@@ -74,12 +74,17 @@ pub fn init(renderer: *Renderer, command_buffer: *const CommandBuffer) !RenderGr
     defer resource_producer_map.deinit();
 
     var i: usize = 0;
-    while (i < command_buffer.commands.len) : (i += 1) {
-        if (command_buffer.commands.items(.kind)[i] != .begin_render_pass) {
-            continue;
+    while (i < command_buffer.commands.items.len) : (i += 1) {
+        const command = command_buffer.commands.items[i];
+
+        switch (command) {
+            .begin_render_pass => {},
+            else => {
+                continue;
+            },
         }
 
-        const render_pass = command_buffer.commands.items(.data)[i];
+        const render_pass = command.begin_render_pass;
         // Even though we haven't created the node yet, we know where it will be.
         const node_handle = nodes.items.len;
 
@@ -88,11 +93,14 @@ pub fn init(renderer: *Renderer, command_buffer: *const CommandBuffer) !RenderGr
         const command_start_idx = i + 1;
         var j = command_start_idx;
         while (true) {
-            if (command_buffer.commands.items(.kind)[j] == .end_render_pass) {
-                break;
+            switch (command_buffer.commands.items[j]) {
+                .end_render_pass => {
+                    break;
+                },
+                else => {},
             }
 
-            if (j >= command_buffer.commands.len) {
+            if (j >= command_buffer.commands.items.len) {
                 unreachable;
             }
 
@@ -224,7 +232,7 @@ pub fn init(renderer: *Renderer, command_buffer: *const CommandBuffer) !RenderGr
         .ui_node = ui_node,
 
         .execute_steps = std.ArrayList(ExecuteStep).init(renderer.allocator),
-        .rp_handle_to_real_rp = std.AutoHashMap(usize, VulkanRenderPassHandle).init(renderer.allocator),
+        .rp_handle_to_real_rp = std.AutoHashMap(VirtualRenderPassHandle, VulkanRenderPassHandle).init(renderer.allocator),
 
         .semaphore_to_use = .a,
     };

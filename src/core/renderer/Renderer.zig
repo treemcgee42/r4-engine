@@ -10,6 +10,8 @@ pub const RenderPassInfo = RenderPass.RenderPassInfo;
 const Swapchain = @import("Swapchain.zig");
 const Window = @import("../Window.zig");
 const Ui = @import("./Ui.zig");
+const VulkanRenderPass = VulkanSystem.RenderPass;
+const VulkanRenderPassHandle = VulkanSystem.RenderPassHandle;
 
 allocator: std.mem.Allocator,
 
@@ -257,25 +259,37 @@ pub fn end_frame(self: *Renderer, window: *Window) !void {
     swapchain.current_frame = (swapchain.current_frame + 1) % Swapchain.max_frames_in_flight;
 }
 
-pub const RenderPassHandle = usize;
+// ---
+
+pub const RenderPassHandle = struct {
+    virtual_rp_idx: usize,
+    physical_rp_handle: ?VulkanRenderPassHandle,
+};
 
 pub fn create_renderpass(self: *Renderer, info: *RenderPassInfo) !RenderPassHandle {
     const rp = try RenderPass.init(info);
     try self.render_passes.append(rp);
-    return self.render_passes.items.len - 1;
+    return .{
+        .virtual_rp_idx = self.render_passes.items.len - 1,
+        .physical_rp_handle = null,
+    };
 }
 
-pub fn get_renderpass_from_handle(self: *const Renderer, handle: RenderPassHandle) *RenderPass {
-    return &self.render_passes.items[handle];
+pub fn get_renderpass_from_handle(
+    self: *const Renderer,
+    handle: RenderPassHandle,
+) *RenderPass {
+    return &self.render_passes.items[handle.virtual_rp_idx];
 }
+
+// ---
 
 /// Simply passes `num_vertices` to the shader. No assumptions are made about the
 /// positioning of these vertices. A typical usecase is to instead use the index
 /// of the vertex (`gl_VertexIndex`) to do something in the shader.
 pub fn draw(self: *Renderer, num_vertices: usize) !void {
-    try self.command_buffer.commands.append(self.allocator, .{
-        .kind = .draw,
-        .data = num_vertices,
+    try self.command_buffer.commands.append(.{
+        .draw = num_vertices,
     });
 }
 
@@ -291,23 +305,49 @@ pub fn get_pipeline_from_handle(self: *Renderer, handle: PipelineHandle) *Pipeli
 }
 
 pub fn bind_pipeline(self: *Renderer, pipeline_handle: PipelineHandle) !void {
-    try self.command_buffer.commands.append(self.allocator, .{
-        .kind = .bind_pipeline,
-        .data = pipeline_handle,
+    try self.command_buffer.commands.append(.{
+        .bind_pipeline = pipeline_handle,
     });
 }
 
+inline fn get_vulkan_rp_from_virtual_rp_handle(
+    self: *Renderer,
+    virtual_rp_handle: RenderPassHandle,
+) ?*VulkanRenderPass {
+    if (self.render_graph == null) {
+        return null;
+    }
+
+    const vk_rp_handle = self.render_graph.?.rp_handle_to_real_rp.get(virtual_rp_handle);
+    if (vk_rp_handle == null) {
+        return null;
+    }
+
+    return self.system.get_renderpass_from_handle(vk_rp_handle.?);
+}
+
+pub fn set_renderpass_clear_color(
+    self: *Renderer,
+    virtual_rp_handle: RenderPassHandle,
+    color: [4]f32,
+) void {
+    if (self.render_graph == null) {
+        return;
+    }
+
+    const vk_rp_ptr = self.get_vulkan_rp_from_virtual_rp_handle(virtual_rp_handle);
+    vk_rp_ptr.?.*.clear_color = color;
+}
+
 pub fn begin_renderpass(self: *Renderer, render_pass: RenderPassHandle) !void {
-    try self.command_buffer.commands.append(self.allocator, .{
-        .kind = .begin_render_pass,
-        .data = render_pass,
+    try self.command_buffer.commands.append(.{
+        .begin_render_pass = render_pass,
     });
 }
 
 pub fn end_renderpass(self: *Renderer, render_pass: RenderPassHandle) !void {
-    try self.command_buffer.commands.append(self.allocator, .{
-        .kind = .end_render_pass,
-        .data = render_pass,
+    try self.command_buffer.commands.append(.{
+        .end_render_pass = render_pass,
     });
 }
 
