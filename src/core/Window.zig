@@ -8,6 +8,8 @@ const Swapchain = @import("renderer/Swapchain.zig");
 const RenderPass = @import("renderer/RenderPass.zig");
 const Renderer = @import("renderer/Renderer.zig");
 const Resource = Renderer.Resource;
+const buffer = @import("renderer/vulkan//buffer.zig");
+const main = @import("../main.zig");
 
 const Window = @This();
 
@@ -106,12 +108,24 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
     const scene_pass = try core.renderer.create_renderpass(&scene_pass_info);
     const scene_pipeline = try core.renderer.create_pipeline(.{
         .name = "Hello Triangle",
-        .vertex_shader_filename = "shaders/compiled_output/triangle.vert.spv",
+        .vertex_shader_filename = "shaders/compiled_output/pass_through.vert.spv",
         .fragment_shader_filename = "shaders/compiled_output/triangle.frag.spv",
         .front_face_orientation = .clockwise,
         .topology = .triangle_list,
         .render_pass = scene_pass,
     });
+
+    var vertices_2 = main.vertices;
+    const vertex_buffer = try buffer.VertexBuffer.init(
+        core.renderer.system.physical_device,
+        core.renderer.system.logical_device,
+        core.renderer.system.command_pool,
+        core.renderer.system.graphics_queue,
+        main.Vertex,
+        &vertices_2,
+    );
+    defer vertex_buffer.deinit(core.renderer.system.logical_device);
+    var vertex_buffs = [_]buffer.VertexBuffer{vertex_buffer};
 
     // --- Main pass.
     var main_pass_render_target = try core.renderer.resource_system.create_resource(.{
@@ -215,7 +229,8 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
 
         try core.renderer.begin_renderpass(scene_pass);
         try core.renderer.bind_pipeline(scene_pipeline);
-        try core.renderer.draw(3);
+        try core.renderer.bind_vertex_buffers(&vertex_buffs);
+        try core.renderer.draw(vertices_2.len);
         try core.renderer.end_renderpass(scene_pass);
 
         try core.renderer.begin_renderpass(render_pass);

@@ -12,6 +12,7 @@ const Window = @import("../Window.zig");
 const Ui = @import("./Ui.zig");
 const VulkanRenderPass = VulkanSystem.RenderPass;
 const VulkanRenderPassHandle = VulkanSystem.RenderPassHandle;
+const VertexBuffer = @import("vulkan/buffer.zig").VertexBuffer;
 
 allocator: std.mem.Allocator,
 
@@ -307,6 +308,15 @@ pub fn get_pipeline_from_handle(self: *Renderer, handle: PipelineHandle) *Pipeli
 pub fn bind_pipeline(self: *Renderer, pipeline_handle: PipelineHandle) !void {
     try self.command_buffer.commands.append(.{
         .bind_pipeline = pipeline_handle,
+    });
+}
+
+pub fn bind_vertex_buffers(
+    self: *Renderer,
+    buffers: []VertexBuffer,
+) !void {
+    try self.command_buffer.commands.append(.{
+        .bind_vertex_buffers = buffers,
     });
 }
 

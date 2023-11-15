@@ -6,6 +6,7 @@ const VirtualPipeline = Renderer.Pipeline;
 const VirtualPipelineHandle = Renderer.PipelineHandle;
 const Swapchain = @import("./Swapchain.zig");
 const RenderPassHandle = Renderer.RenderPassHandle;
+const VertexBuffer = @import("vulkan/buffer.zig").VertexBuffer;
 
 allocator: std.mem.Allocator,
 commands: std.ArrayList(Command),
@@ -32,6 +33,7 @@ const Command = union(enum) {
     draw: usize,
     begin_render_pass: RenderPassHandle,
     end_render_pass: RenderPassHandle,
+    bind_vertex_buffers: []VertexBuffer,
 };
 
 pub fn reset(self: *CommandBuffer) void {
@@ -54,8 +56,37 @@ pub fn execute_command(
         .draw => {
             execute_draw(renderer, command.draw, command_buffer);
         },
+        .bind_vertex_buffers => {
+            try execute_bind_vertex_buffers(
+                renderer,
+                command.bind_vertex_buffers,
+                command_buffer,
+            );
+        },
         else => unreachable,
     }
+}
+
+fn execute_bind_vertex_buffers(
+    renderer: *Renderer,
+    vertex_buffers: []VertexBuffer,
+    command_buffer: vulkan.VkCommandBuffer,
+) !void {
+    std.debug.assert(vertex_buffers.len == 1);
+
+    const current_frame_context = renderer.current_frame_context.?;
+    _ = current_frame_context;
+
+    var bufs = [_]vulkan.VkBuffer{vertex_buffers[0].buffer.buffer};
+    var offsets = [_]vulkan.VkDeviceSize{0};
+
+    vulkan.vkCmdBindVertexBuffers(
+        command_buffer,
+        0,
+        @intCast(vertex_buffers.len),
+        bufs[0..].ptr,
+        offsets[0..].ptr,
+    );
 }
 
 fn execute_bind_pipeline(renderer: *Renderer, virtual_pipeline_handle: VirtualPipelineHandle, command_buffer: vulkan.VkCommandBuffer) !void {

@@ -104,7 +104,7 @@ const Buffer = struct {
         const memory_type_index = try find_memory_type(
             physical_device,
             memory_requirements.memoryTypeBits,
-            property_flags,
+            @bitCast(property_flags),
         );
         const alloc_info = vulkan.VkMemoryAllocateInfo{
             .sType = vulkan.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
@@ -178,9 +178,10 @@ pub const VertexBuffer = struct {
         device: vulkan.VkDevice,
         command_pool: vulkan.VkCommandPool,
         graphics_queue: vulkan.VkQueue,
-        vertices: []vertex.Vertex,
+        comptime vertex_type: type,
+        vertices: []vertex_type,
     ) VulkanError!VertexBuffer {
-        const buffer_size = @sizeOf(vertex.Vertex) * vertices.len;
+        const buffer_size = @sizeOf(vertex_type) * vertices.len;
 
         // --- Staging buffer.
 
