@@ -90,6 +90,30 @@ pub const StartupError = error{
     glfw_init_failed,
 };
 
+// ---
+
+pub const Vertex = struct {
+    position: Math.Vec2f,
+    color: Math.Vec3f,
+};
+
+pub const vertices = [_]Vertex{
+    .{
+        Math.Vec2f.init(0.0, -0.5),
+        Math.Vec3f.init(1.0, 0.0, 0.0),
+    },
+    .{
+        Math.Vec2f.init(0.5, 0.5),
+        Math.Vec3f.init(0.0, 1.0, 0.0),
+    },
+    .{
+        Math.Vec2f.init(-0.5, 0.5),
+        Math.Vec3f.init(0.0, 0.0, 1.0),
+    },
+};
+
+// ---
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();

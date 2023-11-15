@@ -8,6 +8,7 @@ const VulkanError = @import("./VulkanSystem.zig").VulkanError;
 const cbuf = @import("../../../vulkan/command_buffer.zig");
 const vertex = @import("../../../vertex.zig");
 const l0vk = @import("../layer0/vulkan/vulkan.zig");
+const math = @import("../../../math.zig");
 
 fn find_memory_type(
     physical_device: l0vk.VkPhysicalDevice,
@@ -1100,3 +1101,49 @@ const VulkanImage = struct {
         try cbuf.end_single_time_commands(device, command_pool, graphics_queue, command_buffer);
     }
 };
+
+// ---
+
+pub fn get_binding_description(comptime vertex_type: type) l0vk.VkVertexInputBindingDescription {
+    const binding_description = l0vk.VkVertexInputBindingDescription{
+        .binding = 0,
+        .stride = @sizeOf(vertex_type),
+        .inputRate = .vertex,
+    };
+
+    return binding_description;
+}
+
+pub fn get_attribute_descriptions(
+    allocator: std.mem.Allocator,
+    comptime vertex_type: type,
+) ![]l0vk.VkVertexInputAttributeDescription {
+    // --- How many fields/attributes.
+
+    const field_count = @typeInfo(vertex_type).Struct.fields.len;
+    var to_return = try allocator.alloc(
+        l0vk.VkVertexInputAttributeDescription,
+        field_count,
+    );
+
+    // --- For each field/attribute.
+
+    var i: usize = 0;
+    inline for (std.meta.fields(vertex_type)) |field| {
+        to_return[i] = .{
+            .location = @intCast(i),
+            .binding = 0,
+            .format = switch (field.type) {
+                math.Vec2f => .r32g32_sfloat,
+                math.Vec3f => .r32g32b32_sfloat,
+                else => @compileError("unsupported type"),
+            },
+            .offset = @offsetOf(vertex_type, field.name),
+        };
+        i += 1;
+    }
+
+    // ---
+
+    return to_return;
+}

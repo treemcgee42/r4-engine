@@ -309,7 +309,7 @@ pub const VkVertexInputRate = enum(c_uint) {
 pub const VkVertexInputBindingDescription = struct {
     binding: u32,
     stride: u32,
-    inputRate: VkVertexInputRate = @import("std").mem.zeroes(VkVertexInputRate),
+    inputRate: VkVertexInputRate,
 
     pub fn to_vulkan_ty(self: VkVertexInputBindingDescription) vulkan.VkVertexInputBindingDescription {
         return vulkan.VkVertexInputBindingDescription{

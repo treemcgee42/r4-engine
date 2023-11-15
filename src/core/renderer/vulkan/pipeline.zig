@@ -5,6 +5,8 @@ const VulkanError = VulkanSystem.VulkanError;
 const l0vk = @import("../layer0/vulkan/vulkan.zig");
 const Renderer = @import("../Renderer.zig");
 const VirtualPipeline = @import("../pipeline.zig").Pipeline;
+const buffer = @import("./buffer.zig");
+const Vertex = @import("../../../main.zig").Vertex;
 
 pub const Pipeline = l0vk.VkPipeline;
 
@@ -100,9 +102,18 @@ pub fn build_pipeline(
 
     // --- Input assembly.
 
+    const binding_description = buffer.get_binding_description(Vertex);
+    const attribute_descriptions = try buffer.get_attribute_descriptions(
+        allocator,
+        Vertex,
+    );
+    defer allocator.free(attribute_descriptions);
+
     const vertex_input_info = l0vk.VkPipelineVertexInputStateCreateInfo{
-        .vertex_binding_descriptions = &[_]l0vk.VkVertexInputBindingDescription{},
-        .vertex_attribute_descriptions = &[_]l0vk.VkVertexInputAttributeDescription{},
+        .vertex_binding_descriptions = &[_]l0vk.VkVertexInputBindingDescription{
+            binding_description,
+        },
+        .vertex_attribute_descriptions = attribute_descriptions,
     };
 
     const topology = switch (virtual_pipeline.topology) {
