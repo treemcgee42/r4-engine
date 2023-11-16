@@ -17,6 +17,10 @@ const l0vk = @This();
 
 // ---
 
+pub const VK_SUCCESS = vulkan.VK_SUCCESS;
+
+// ---
+
 pub const VkExtent2D = vulkan.VkExtent2D;
 pub const VkExtent3D = vulkan.VkExtent3D;
 

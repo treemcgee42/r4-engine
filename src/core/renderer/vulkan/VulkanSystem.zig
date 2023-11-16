@@ -9,6 +9,7 @@ pub const RenderPassInitInfo = RenderPass.RenderPassInitInfo;
 const Window = @import("../../Window.zig");
 const l0 = @import("../layer0/l0.zig");
 const l0vk = l0.vulkan;
+const vma = @import("vma");
 // tmp
 const buffer = @import("buffer.zig");
 const Renderer = @import("../Renderer.zig");
@@ -32,6 +33,8 @@ max_usable_sample_count: l0vk.VkSampleCountFlags.Bits,
 pipeline_system: PipelineSystem,
 renderpass_system: RenderPassSystem,
 sync_system: SyncSystem,
+
+vma_allocator: vma.VmaAllocator,
 
 tmp_image: ?buffer.ColorImage = null,
 tmp_renderer: ?*Renderer = null,
@@ -255,6 +258,18 @@ pub fn init(allocator_: std.mem.Allocator) !VulkanSystem {
 
     // ---
 
+    var vma_allocator: vma.VmaAllocator = undefined;
+    var res = vma.vmaCreateAllocator(&.{
+        .physicalDevice = @ptrCast(physical_device),
+        .device = @ptrCast(logical_device),
+        .instance = @ptrCast(instance),
+    }, &vma_allocator);
+    if (res != l0vk.VK_SUCCESS) {
+        @panic("Failed to create VMA allocator");
+    }
+
+    // ---
+
     std.log.info("vulkan backend initialized", .{});
 
     return .{
@@ -277,6 +292,8 @@ pub fn init(allocator_: std.mem.Allocator) !VulkanSystem {
         .pipeline_system = pipeline_system,
         .renderpass_system = renderpass_system,
         .sync_system = sync_system,
+
+        .vma_allocator = vma_allocator,
     };
 }
 
@@ -286,6 +303,8 @@ pub fn deinit(self: *VulkanSystem, allocator_: std.mem.Allocator) void {
     self.pipeline_system.deinit(self);
 
     self.support_details.deinit(allocator_);
+
+    vma.vmaDestroyAllocator(self.vma_allocator);
 
     l0vk.vkDestroyCommandPool(self.logical_device, self.command_pool, null);
 
@@ -914,4 +933,12 @@ pub fn submit_command_buffer(
         &submit_info,
         submit_fence,
     );
+}
+
+// ---
+
+pub fn Mesh(VertexType: type) type {
+    return struct {
+        vertices: []VertexType,
+    };
 }

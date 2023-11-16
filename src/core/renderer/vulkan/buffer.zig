@@ -1148,3 +1148,10 @@ pub fn get_attribute_descriptions(
 
     return to_return;
 }
+
+// ---
+
+pub const AllocatedBuffer = struct {
+    buffer: Buffer,
+    // memory: Memory,
+};

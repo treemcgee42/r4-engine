@@ -46,6 +46,17 @@ pub fn build(b: *std.Build) void {
 
     link_vulkan(b, exe, true);
 
+    // VMA
+    exe.addIncludePath(.{ .path = "./external/vma" });
+    exe.addCSourceFile(.{
+        .file = .{ .path = "./external/vma/vk_mem_alloc_impl.cpp" },
+        .flags = &[_][]const u8{},
+    });
+    const vma_module = b.createModule(.{
+        .source_file = .{ .path = "src/c/vma.zig" },
+    });
+    exe.addModule("vma", vma_module);
+
     // STB_IMAGE.
     exe.addIncludePath(.{ .path = "./external/stb_image" });
     exe.addCSourceFile(.{
