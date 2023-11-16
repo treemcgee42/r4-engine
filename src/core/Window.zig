@@ -10,6 +10,7 @@ const Renderer = @import("renderer/Renderer.zig");
 const Resource = Renderer.Resource;
 const buffer = @import("renderer/vulkan//buffer.zig");
 const main = @import("../main.zig");
+const VulkanSystem = @import("renderer/vulkan/VulkanSystem.zig");
 
 const Window = @This();
 
@@ -115,17 +116,14 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
         .render_pass = scene_pass,
     });
 
-    var vertices_2 = main.vertices;
-    const vertex_buffer = try buffer.VertexBuffer.init(
-        core.renderer.system.physical_device,
-        core.renderer.system.logical_device,
-        core.renderer.system.command_pool,
-        core.renderer.system.graphics_queue,
-        main.Vertex,
-        &vertices_2,
-    );
-    defer vertex_buffer.deinit(core.renderer.system.logical_device);
-    var vertex_buffs = [_]buffer.VertexBuffer{vertex_buffer};
+    // ---
+
+    var mesh = try VulkanSystem.mesh._Mesh(main.Vertex).init(core.allocator);
+    try mesh.vertices.appendSlice(&main.vertices);
+    try mesh.upload(core.renderer.system.vma_allocator);
+    try core.renderer.system.mesh_system.register("triangle", mesh);
+
+    var vertex_buffs = [_]vulkan.VkBuffer{mesh.vertex_buffer.buffer};
 
     // --- Main pass.
     var main_pass_render_target = try core.renderer.resource_system.create_resource(.{
@@ -230,7 +228,7 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
         try core.renderer.begin_renderpass(scene_pass);
         try core.renderer.bind_pipeline(scene_pipeline);
         try core.renderer.bind_vertex_buffers(&vertex_buffs);
-        try core.renderer.draw(vertices_2.len);
+        try core.renderer.draw(main.vertices.len);
         try core.renderer.end_renderpass(scene_pass);
 
         try core.renderer.begin_renderpass(render_pass);
@@ -241,7 +239,6 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
         try core.renderer.end_renderpass(render_pass);
 
         try core.renderer.end_frame(self);
-        // @panic("planned");
     }
 }
 

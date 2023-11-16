@@ -10,9 +10,11 @@ const Window = @import("../../Window.zig");
 const l0 = @import("../layer0/l0.zig");
 const l0vk = l0.vulkan;
 const vma = @import("vma");
+pub const mesh = @import("./mesh.zig");
 // tmp
 const buffer = @import("buffer.zig");
 const Renderer = @import("../Renderer.zig");
+const Vertex = @import("../../../main.zig").Vertex;
 
 allocator: std.mem.Allocator,
 
@@ -38,6 +40,15 @@ vma_allocator: vma.VmaAllocator,
 
 tmp_image: ?buffer.ColorImage = null,
 tmp_renderer: ?*Renderer = null,
+
+mesh_system: mesh.MeshSystem(Vertex),
+
+pub const DeletionFn = *const fn (*anyopaque) void;
+
+pub const DeletionQueueItem = struct {
+    deletion_fn: DeletionFn,
+    context: *anyopaque,
+};
 
 pub const RenderPassHandle = usize;
 const RenderPassSystem = struct {
@@ -270,6 +281,10 @@ pub fn init(allocator_: std.mem.Allocator) !VulkanSystem {
 
     // ---
 
+    const mesh_system = try mesh.MeshSystem(Vertex).init(allocator_);
+
+    // ---
+
     std.log.info("vulkan backend initialized", .{});
 
     return .{
@@ -294,10 +309,14 @@ pub fn init(allocator_: std.mem.Allocator) !VulkanSystem {
         .sync_system = sync_system,
 
         .vma_allocator = vma_allocator,
+
+        .mesh_system = mesh_system,
     };
 }
 
 pub fn deinit(self: *VulkanSystem, allocator_: std.mem.Allocator) void {
+    self.mesh_system.deinit(self.vma_allocator);
+
     self.sync_system.deinit(self);
     self.renderpass_system.deinit(self);
     self.pipeline_system.deinit(self);
@@ -933,12 +952,4 @@ pub fn submit_command_buffer(
         &submit_info,
         submit_fence,
     );
-}
-
-// ---
-
-pub fn Mesh(VertexType: type) type {
-    return struct {
-        vertices: []VertexType,
-    };
 }

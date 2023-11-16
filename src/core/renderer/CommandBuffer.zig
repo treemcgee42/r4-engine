@@ -33,7 +33,7 @@ const Command = union(enum) {
     draw: usize,
     begin_render_pass: RenderPassHandle,
     end_render_pass: RenderPassHandle,
-    bind_vertex_buffers: []VertexBuffer,
+    bind_vertex_buffers: []vulkan.VkBuffer,
 };
 
 pub fn reset(self: *CommandBuffer) void {
@@ -69,7 +69,7 @@ pub fn execute_command(
 
 fn execute_bind_vertex_buffers(
     renderer: *Renderer,
-    vertex_buffers: []VertexBuffer,
+    vertex_buffers: []vulkan.VkBuffer,
     command_buffer: vulkan.VkCommandBuffer,
 ) !void {
     std.debug.assert(vertex_buffers.len == 1);
@@ -77,7 +77,7 @@ fn execute_bind_vertex_buffers(
     const current_frame_context = renderer.current_frame_context.?;
     _ = current_frame_context;
 
-    var bufs = [_]vulkan.VkBuffer{vertex_buffers[0].buffer.buffer};
+    var bufs = [_]vulkan.VkBuffer{vertex_buffers[0]};
     var offsets = [_]vulkan.VkDeviceSize{0};
 
     vulkan.vkCmdBindVertexBuffers(

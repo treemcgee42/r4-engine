@@ -4,6 +4,7 @@ const c_string = @cImport({
 const stb_image = @import("../../../c.zig").stb_image;
 const std = @import("std");
 const vulkan = @import("vulkan");
+const vma = @import("vma");
 const VulkanError = @import("./VulkanSystem.zig").VulkanError;
 const cbuf = @import("../../../vulkan/command_buffer.zig");
 const vertex = @import("../../../vertex.zig");
@@ -1152,6 +1153,17 @@ pub fn get_attribute_descriptions(
 // ---
 
 pub const AllocatedBuffer = struct {
-    buffer: Buffer,
-    // memory: Memory,
+    buffer: vulkan.VkBuffer,
+    allocation: vma.VmaAllocation,
+
+    pub fn deinit(
+        self: *AllocatedBuffer,
+        vma_allocator: vma.VmaAllocator,
+    ) void {
+        vma.vmaDestroyBuffer(
+            vma_allocator,
+            @ptrCast(self.buffer),
+            self.allocation,
+        );
+    }
 };

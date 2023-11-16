@@ -313,7 +313,7 @@ pub fn bind_pipeline(self: *Renderer, pipeline_handle: PipelineHandle) !void {
 
 pub fn bind_vertex_buffers(
     self: *Renderer,
-    buffers: []VertexBuffer,
+    buffers: []vulkan.VkBuffer,
 ) !void {
     try self.command_buffer.commands.append(.{
         .bind_vertex_buffers = buffers,
