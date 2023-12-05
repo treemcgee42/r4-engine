@@ -88,7 +88,7 @@ pub const Mat4f = struct {
 
 pub fn mat4f_times_mat4f(a: *Mat4f, b: *Mat4f) Mat4f {
     var raw: cglm.mat4 = undefined;
-    cglm.glmc_mat4_mul(a.raw, b.raw, &raw);
+    cglm.glmc_mat4_mul(&a.raw, &b.raw, &raw);
 
     return .{
         .raw = raw,

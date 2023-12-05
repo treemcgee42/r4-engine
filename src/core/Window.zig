@@ -111,8 +111,8 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
     const scene_pass = try core.renderer.create_renderpass(&scene_pass_info);
     const scene_pipeline = try core.renderer.create_pipeline(.{
         .name = "Hello Triangle",
-        .vertex_shader_filename = "shaders/compiled_output/pass_through.vert.spv",
-        .fragment_shader_filename = "shaders/compiled_output/triangle.frag.spv",
+        .vertex_shader_filename = "shaders/compiled_output/tri_mesh.vert.spv",
+        .fragment_shader_filename = "shaders/compiled_output/tri_mesh.frag.spv",
         .front_face_orientation = .clockwise,
         .topology = .triangle_list,
         .render_pass = scene_pass,
@@ -120,41 +120,31 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
 
     // ---
 
-    var mesh = try VulkanSystem.mesh._Mesh(main.Vertex).init(core.allocator);
-    try mesh.vertices.appendSlice(&main.vertices);
-    try mesh.upload(core.renderer.system.vma_allocator);
-    try core.renderer.system.mesh_system.register("triangle", mesh);
+    var scene = try Scene.init(core.allocator, &core.renderer);
+    defer scene.deinit();
 
-    var vertex_buffs = [_]vulkan.VkBuffer{mesh.vertex_buffer.buffer};
-
-    // ---
-
-    // var scene = try Scene.init(core.allocator, &core.renderer);
-
-    // const tri_verts = [_]Scene.Vertex{ .{
-    //     .position = math.Vec3f.init(0.0, -0.5, 0.0),
-    //     .normal = math.Vec3f.init(0, 0, 1),
-    //     .color = math.Vec3f.init(1, 0, 0),
-    // }, .{
-    //     .position = math.Vec3f.init(0.5, 0.5, 0.0),
-    //     .normal = math.Vec3f.init(0, 0, 1),
-    //     .color = math.Vec3f.init(0, 1, 0),
-    // }, .{
-    //     .position = math.Vec3f.init(-0.5, 0.5, 0.0),
-    //     .normal = math.Vec3f.init(0, 0, 1),
-    //     .color = math.Vec3f.init(0, 0, 1),
-    // } };
-    // var tri_mesh = try Scene.Mesh.init(core.allocator);
-    // try tri_mesh.vertices.appendSlice(&tri_verts);
-    // // scene.mesh_system.register("triangle", mesh);
-    // const material_handle = try scene.material_system.register_material(Scene.Material{
-    //     .pipeline = scene_pipeline,
-    // });
-    // try scene.objects.append(.{
-    //     .mesh = tri_mesh,
-    //     .material = material_handle,
-    //     .transform_matrix = math.Mat4f.init_identity(),
-    // });
+    var tri_verts = [_]Scene.Vertex{ .{
+        .position = math.Vec3f.init(0.0, -0.5, 0.0),
+        .normal = math.Vec3f.init(0, 0, 1),
+        .color = math.Vec3f.init(1, 0, 0),
+    }, .{
+        .position = math.Vec3f.init(0.5, 0.5, 0.0),
+        .normal = math.Vec3f.init(0, 0, 1),
+        .color = math.Vec3f.init(0, 1, 0),
+    }, .{
+        .position = math.Vec3f.init(-0.5, 0.5, 0.0),
+        .normal = math.Vec3f.init(0, 0, 1),
+        .color = math.Vec3f.init(0, 0, 1),
+    } };
+    const tri_mesh = try scene.mesh_system.register("triangle", &tri_verts);
+    const material_handle = try scene.material_system.register_material(Scene.Material{
+        .pipeline = scene_pipeline,
+    });
+    try scene.objects.append(.{
+        .mesh = tri_mesh,
+        .material = material_handle,
+        .transform_matrix = math.Mat4f.init_identity(),
+    });
 
     // --- Main pass.
     var main_pass_render_target = try core.renderer.resource_system.create_resource(.{
@@ -258,9 +248,7 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
         try core.renderer.begin_frame(self);
 
         try core.renderer.begin_renderpass(scene_pass);
-        try core.renderer.bind_pipeline(scene_pipeline);
-        try core.renderer.bind_vertex_buffers(&vertex_buffs);
-        try core.renderer.draw(main.vertices.len);
+        try scene.draw();
         try core.renderer.end_renderpass(scene_pass);
 
         try core.renderer.begin_renderpass(render_pass);

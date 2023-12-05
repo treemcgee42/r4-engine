@@ -5,6 +5,7 @@ const c_string = @cImport({
 const vulkan = @import("vulkan");
 const vma = @import("vma");
 const buffer = @import("buffer.zig");
+const Renderer = @import("../Renderer.zig");
 
 pub fn _Mesh(comptime _VertexType: type) type {
     return struct {
@@ -89,18 +90,20 @@ pub fn MeshSystem(comptime VertexType: type) type {
         const Self = @This();
         pub const Mesh = _Mesh(VertexType);
 
+        renderer: *Renderer,
         meshes: std.StringHashMap(Mesh),
 
-        pub fn init(allocator: std.mem.Allocator) !Self {
+        pub fn init(renderer: *Renderer) !Self {
             return .{
-                .meshes = std.StringHashMap(Mesh).init(allocator),
+                .renderer = renderer,
+                .meshes = std.StringHashMap(Mesh).init(renderer.allocator),
             };
         }
 
-        pub fn deinit(self: *Self, vma_allocator: vma.VmaAllocator) void {
+        pub fn deinit(self: *Self) void {
             var it = self.meshes.iterator();
             while (it.next()) |entry| {
-                entry.value_ptr.deinit(vma_allocator);
+                entry.value_ptr.deinit(self.renderer.system.vma_allocator);
             }
             self.meshes.deinit();
         }
@@ -108,9 +111,16 @@ pub fn MeshSystem(comptime VertexType: type) type {
         pub fn register(
             self: *Self,
             name: []const u8,
-            mesh: Mesh,
-        ) !void {
+            vertices: []VertexType,
+        ) !Mesh {
+            var mesh = try Mesh.init(self.renderer.allocator);
+            try mesh.vertices.appendSlice(vertices);
+
+            try mesh.upload(self.renderer.system.vma_allocator);
+
             try self.meshes.put(name, mesh);
+
+            return mesh;
         }
 
         pub fn get(

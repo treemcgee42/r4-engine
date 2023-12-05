@@ -41,8 +41,6 @@ vma_allocator: vma.VmaAllocator,
 tmp_image: ?buffer.ColorImage = null,
 tmp_renderer: ?*Renderer = null,
 
-mesh_system: mesh.MeshSystem(Vertex),
-
 pub const DeletionFn = *const fn (*anyopaque) void;
 
 pub const DeletionQueueItem = struct {
@@ -281,10 +279,6 @@ pub fn init(allocator_: std.mem.Allocator) !VulkanSystem {
 
     // ---
 
-    const mesh_system = try mesh.MeshSystem(Vertex).init(allocator_);
-
-    // ---
-
     std.log.info("vulkan backend initialized", .{});
 
     return .{
@@ -309,14 +303,10 @@ pub fn init(allocator_: std.mem.Allocator) !VulkanSystem {
         .sync_system = sync_system,
 
         .vma_allocator = vma_allocator,
-
-        .mesh_system = mesh_system,
     };
 }
 
 pub fn deinit(self: *VulkanSystem, allocator_: std.mem.Allocator) void {
-    self.mesh_system.deinit(self.vma_allocator);
-
     self.sync_system.deinit(self);
     self.renderpass_system.deinit(self);
     self.pipeline_system.deinit(self);

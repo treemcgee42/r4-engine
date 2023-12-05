@@ -19,7 +19,7 @@ camera: Camera,
 const Self = @This();
 
 pub fn init(allocator: std.mem.Allocator, renderer: *Renderer) !Self {
-    const mesh_system = try MeshSystem.init(allocator);
+    const mesh_system = try MeshSystem.init(renderer);
     const material_system = MaterialSystem.init(allocator);
 
     return .{
@@ -37,7 +37,13 @@ pub fn init(allocator: std.mem.Allocator, renderer: *Renderer) !Self {
     };
 }
 
-pub fn draw(self: *Self) void {
+pub fn deinit(self: *Self) void {
+    self.mesh_system.deinit();
+    self.material_system.deinit();
+    self.objects.deinit();
+}
+
+pub fn draw(self: *Self) !void {
     var prev_material: ?MaterialHandle = null;
 
     var i: usize = 0;
@@ -45,21 +51,26 @@ pub fn draw(self: *Self) void {
         const object = self.objects.items[i];
 
         if (object.material != prev_material) {
-            self.bind_material(object.material);
+            try self.bind_material(object.material);
             prev_material = object.material;
         }
 
-        const mvp_matrix = math.mat4f_times_mat4f(&self.camera.projection_matrix, math.mat4f_times_mat4f(&self.camera.view_matrix, &object.transform_matrix));
-        const push_constants = PushConstants{
-            .data = undefined,
-            .transform_matrix = mvp_matrix,
-        };
-        try self._renderer.upload_push_constants(object.material.pipeline, push_constants);
+        // var view_matrix = self.camera.view_matrix;
+        // var projection_matrix = self.camera.projection_matrix;
+        // var transform_matrix = object.transform_matrix;
+        // var intermediate = math.mat4f_times_mat4f(&view_matrix, &transform_matrix);
+        // const mvp_matrix = math.mat4f_times_mat4f(&projection_matrix, &intermediate);
+        // const push_constants = PushConstants{
+        //     .data = undefined,
+        //     .transform_matrix = mvp_matrix,
+        // };
+        // const pipeline_handle = self.material_system.materials.items[object.material].pipeline;
+        // try self._renderer.upload_push_constants(pipeline_handle, push_constants);
 
-        const buffers = [_]vulkan.VkBuffer{object.mesh.vertex_buffer.buffer};
-        self._renderer.bind_vertex_buffers(&buffers);
+        var buffers = [_]vulkan.VkBuffer{object.mesh.vertex_buffer.buffer};
+        try self._renderer.bind_vertex_buffers(&buffers);
 
-        self._renderer.draw(object.mesh.vertices.items.len);
+        try self._renderer.draw(object.mesh.vertices.items.len);
     }
 }
 
@@ -104,8 +115,7 @@ pub const Vertex = struct {
     color: math.Vec3f,
 };
 
-pub const Mesh = @import("vulkan/mesh.zig")._Mesh(Vertex);
-pub const MeshSystem = @import("vulkan/mesh.zig").MeshSystem(Mesh);
+pub const MeshSystem = @import("vulkan/mesh.zig").MeshSystem(Vertex);
 
 // ---
 
@@ -119,8 +129,8 @@ pub const Material = struct {
 
 pub const MaterialHandle = usize;
 
-pub fn bind_material(self: *Self, material: MaterialHandle) void {
-    self._renderer.bind_pipeline(material);
+pub fn bind_material(self: *Self, material: MaterialHandle) !void {
+    try self._renderer.bind_pipeline(material);
 }
 
 pub const MaterialSystem = struct {
@@ -145,7 +155,7 @@ pub const MaterialSystem = struct {
 // ---
 
 pub const Object = struct {
-    mesh: Mesh,
+    mesh: MeshSystem.Mesh,
     material: MaterialHandle,
     transform_matrix: math.Mat4f,
 };

@@ -6,7 +6,7 @@ const l0vk = @import("../layer0/vulkan/vulkan.zig");
 const Renderer = @import("../Renderer.zig");
 const VirtualPipeline = @import("../pipeline.zig").Pipeline;
 const buffer = @import("./buffer.zig");
-const Vertex = @import("../../../main.zig").Vertex;
+const Vertex = @import("../Scene.zig").Vertex;
 
 pub const Pipeline = l0vk.VkPipeline;
 
