@@ -13,6 +13,7 @@ const Ui = @import("./Ui.zig");
 const VulkanRenderPass = VulkanSystem.RenderPass;
 const VulkanRenderPassHandle = VulkanSystem.RenderPassHandle;
 const VertexBuffer = @import("vulkan/buffer.zig").VertexBuffer;
+const PushConstants = @import("./Scene.zig").PushConstants;
 
 allocator: std.mem.Allocator,
 
@@ -317,6 +318,19 @@ pub fn bind_vertex_buffers(
 ) !void {
     try self.command_buffer.commands.append(.{
         .bind_vertex_buffers = buffers,
+    });
+}
+
+pub fn upload_push_constants(
+    self: *Renderer,
+    pipeline_handle: PipelineHandle,
+    push_constants: PushConstants,
+) !void {
+    try self.command_buffer.commands.append(.{
+        .upload_push_constants = .{
+            .pipeline = pipeline_handle,
+            .push_constants = push_constants,
+        },
     });
 }
 

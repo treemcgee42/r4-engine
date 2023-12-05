@@ -11,6 +11,8 @@ const Resource = Renderer.Resource;
 const buffer = @import("renderer/vulkan//buffer.zig");
 const main = @import("../main.zig");
 const VulkanSystem = @import("renderer/vulkan/VulkanSystem.zig");
+const Scene = @import("renderer/Scene.zig");
+const math = @import("../math.zig");
 
 const Window = @This();
 
@@ -125,6 +127,35 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
 
     var vertex_buffs = [_]vulkan.VkBuffer{mesh.vertex_buffer.buffer};
 
+    // ---
+
+    // var scene = try Scene.init(core.allocator, &core.renderer);
+
+    // const tri_verts = [_]Scene.Vertex{ .{
+    //     .position = math.Vec3f.init(0.0, -0.5, 0.0),
+    //     .normal = math.Vec3f.init(0, 0, 1),
+    //     .color = math.Vec3f.init(1, 0, 0),
+    // }, .{
+    //     .position = math.Vec3f.init(0.5, 0.5, 0.0),
+    //     .normal = math.Vec3f.init(0, 0, 1),
+    //     .color = math.Vec3f.init(0, 1, 0),
+    // }, .{
+    //     .position = math.Vec3f.init(-0.5, 0.5, 0.0),
+    //     .normal = math.Vec3f.init(0, 0, 1),
+    //     .color = math.Vec3f.init(0, 0, 1),
+    // } };
+    // var tri_mesh = try Scene.Mesh.init(core.allocator);
+    // try tri_mesh.vertices.appendSlice(&tri_verts);
+    // // scene.mesh_system.register("triangle", mesh);
+    // const material_handle = try scene.material_system.register_material(Scene.Material{
+    //     .pipeline = scene_pipeline,
+    // });
+    // try scene.objects.append(.{
+    //     .mesh = tri_mesh,
+    //     .material = material_handle,
+    //     .transform_matrix = math.Mat4f.init_identity(),
+    // });
+
     // --- Main pass.
     var main_pass_render_target = try core.renderer.resource_system.create_resource(.{
         .kind = .final_texture,
@@ -198,6 +229,7 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
                     1.0,
                 },
             );
+            // Vert 1 color
 
             cimgui.igEnd();
         }

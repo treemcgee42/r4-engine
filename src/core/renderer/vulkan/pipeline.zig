@@ -12,16 +12,30 @@ pub const Pipeline = l0vk.VkPipeline;
 
 pub const PipelineSystem = struct {
     pipelines: std.StringHashMap(l0vk.VkPipeline),
+    pipeline_layouts: std.StringHashMap(l0vk.VkPipelineLayout),
 
     pub fn init(allocator: std.mem.Allocator) PipelineSystem {
         const pipelines = std.StringHashMap(l0vk.VkPipeline).init(allocator);
+        const pipeline_layouts = std.StringHashMap(l0vk.VkPipelineLayout).init(allocator);
 
         return .{
             .pipelines = pipelines,
+            .pipeline_layouts = pipeline_layouts,
         };
     }
 
     pub fn deinit(self: *PipelineSystem, system: *VulkanSystem) void {
+        var pipeline_layouts_iterator = self.pipeline_layouts.iterator();
+        while (true) {
+            const pipeline_layout = pipeline_layouts_iterator.next();
+            if (pipeline_layout == null) {
+                break;
+            }
+
+            l0vk.vkDestroyPipelineLayout(system.logical_device, pipeline_layout.?.value_ptr.*, null);
+        }
+        self.pipeline_layouts.deinit();
+
         var pipelines_iterator = self.pipelines.iterator();
         while (true) {
             const pipeline = pipelines_iterator.next();
@@ -39,28 +53,38 @@ pub const PipelineSystem = struct {
         renderer: *Renderer,
         virtual_pipeline: *const VirtualPipeline,
         renderpass: l0vk.VkRenderPass,
-    ) !l0vk.VkPipeline {
+    ) !PipelineAndLayout {
         // --- Try to find in cache.
 
-        const lookup_result = self.pipelines.get(virtual_pipeline.name);
-        if (lookup_result != null) {
-            return lookup_result.?;
+        const pipeline_lookup_result = self.pipelines.get(virtual_pipeline.name);
+        const layout_lookup_result = self.pipeline_layouts.get(virtual_pipeline.name);
+        if (pipeline_lookup_result != null and layout_lookup_result != null) {
+            return .{
+                .pipeline = pipeline_lookup_result.?,
+                .pipeline_layout = layout_lookup_result.?,
+            };
         }
 
         // --- Construct it.
 
-        const pipeline = try build_pipeline(renderer, virtual_pipeline, renderpass);
-        try self.pipelines.put(virtual_pipeline.name, pipeline);
+        const pipeline_and_layout = try build_pipeline(renderer, virtual_pipeline, renderpass);
+        try self.pipelines.put(virtual_pipeline.name, pipeline_and_layout.pipeline);
+        try self.pipeline_layouts.put(virtual_pipeline.name, pipeline_and_layout.pipeline_layout);
 
-        return pipeline;
+        return pipeline_and_layout;
     }
+};
+
+const PipelineAndLayout = struct {
+    pipeline: l0vk.VkPipeline,
+    pipeline_layout: l0vk.VkPipelineLayout,
 };
 
 pub fn build_pipeline(
     renderer: *Renderer,
     virtual_pipeline: *const VirtualPipeline,
     renderpass: l0vk.VkRenderPass,
-) !l0vk.VkPipeline {
+) !PipelineAndLayout {
     const allocator = renderer.allocator;
     var system = renderer.system;
 
@@ -235,13 +259,13 @@ pub fn build_pipeline(
 
     // ---
 
-    // TODO: can this be destroyed here?
-    l0vk.vkDestroyPipelineLayout(system.logical_device, pipeline_layout, null);
-
     l0vk.vkDestroyShaderModule(system.logical_device, vert_shader_module, null);
     l0vk.vkDestroyShaderModule(system.logical_device, frag_shader_module, null);
 
-    return pipelines[0];
+    return .{
+        .pipeline = pipelines[0],
+        .pipeline_layout = pipeline_layout,
+    };
 }
 
 fn read_file(filename: []const u8, allocator: std.mem.Allocator) VulkanError![]const u8 {

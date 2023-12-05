@@ -7,6 +7,7 @@ const VirtualPipelineHandle = Renderer.PipelineHandle;
 const Swapchain = @import("./Swapchain.zig");
 const RenderPassHandle = Renderer.RenderPassHandle;
 const VertexBuffer = @import("vulkan/buffer.zig").VertexBuffer;
+const PushConstants = @import("./Scene.zig").PushConstants;
 
 allocator: std.mem.Allocator,
 commands: std.ArrayList(Command),
@@ -27,6 +28,11 @@ pub fn deinit(self: *CommandBuffer) void {
     self.extra_data.deinit();
 }
 
+pub const UploadPushConstantsCommand = struct {
+    push_constants: PushConstants,
+    pipeline: VirtualPipelineHandle,
+};
+
 const Command = union(enum) {
     bind_pipeline: VirtualPipelineHandle,
     // Number of vertices to draw.
@@ -34,6 +40,7 @@ const Command = union(enum) {
     begin_render_pass: RenderPassHandle,
     end_render_pass: RenderPassHandle,
     bind_vertex_buffers: []vulkan.VkBuffer,
+    upload_push_constants: UploadPushConstantsCommand,
 };
 
 pub fn reset(self: *CommandBuffer) void {
@@ -65,6 +72,31 @@ pub fn execute_command(
         },
         else => unreachable,
     }
+}
+
+fn execute_upload_push_constants(
+    renderer: *Renderer,
+    push_constants_data: UploadPushConstantsCommand,
+    command_buffer: vulkan.VkCommandBuffer,
+) !void {
+    const virtual_pipeline = renderer.get_pipeline_from_handle(push_constants_data.pipeline);
+    const virtual_renderpass_handle = virtual_pipeline.render_pass;
+    const vk_renderpass_handle = renderer.render_graph.?.rp_handle_to_real_rp.get(virtual_renderpass_handle).?;
+    const vk_renderpass = renderer.system.get_renderpass_from_handle(vk_renderpass_handle).render_pass;
+    const pipeline_layout = (try renderer.system.pipeline_system.query(
+        renderer,
+        push_constants_data.pipeline,
+        vk_renderpass,
+    )).pipeline_layout;
+
+    vulkan.vkCmdPushConstants(
+        command_buffer,
+        pipeline_layout,
+        .VK_SHADER_STAGE_VERTEX_BIT,
+        0,
+        @sizeOf(PushConstants),
+        &push_constants_data.push_constants,
+    );
 }
 
 fn execute_bind_vertex_buffers(
@@ -99,11 +131,11 @@ fn execute_bind_pipeline(renderer: *Renderer, virtual_pipeline_handle: VirtualPi
     const virtual_renderpass_handle = virtual_pipeline.render_pass;
     const vk_renderpass_handle = renderer.render_graph.?.rp_handle_to_real_rp.get(virtual_renderpass_handle).?;
     const vk_renderpass = renderer.system.get_renderpass_from_handle(vk_renderpass_handle).render_pass;
-    const vk_pipeline = try renderer.system.pipeline_system.query(
+    const vk_pipeline = (try renderer.system.pipeline_system.query(
         renderer,
         virtual_pipeline,
         vk_renderpass,
-    );
+    )).pipeline;
 
     // ---
 
