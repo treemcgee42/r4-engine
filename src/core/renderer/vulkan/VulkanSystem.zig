@@ -41,6 +41,8 @@ vma_allocator: vma.VmaAllocator,
 tmp_image: ?buffer.ColorImage = null,
 tmp_renderer: ?*Renderer = null,
 
+deinit_queue: DeletionQueue,
+
 pub const DeletionFn = *const fn (*anyopaque) void;
 
 pub const DeletionQueueItem = struct {
@@ -279,6 +281,10 @@ pub fn init(allocator_: std.mem.Allocator) !VulkanSystem {
 
     // ---
 
+    var deinit_queue = DeletionQueue.init(allocator_);
+
+    // ---
+
     std.log.info("vulkan backend initialized", .{});
 
     return .{
@@ -303,10 +309,15 @@ pub fn init(allocator_: std.mem.Allocator) !VulkanSystem {
         .sync_system = sync_system,
 
         .vma_allocator = vma_allocator,
+
+        .deinit_queue = deinit_queue,
     };
 }
 
 pub fn deinit(self: *VulkanSystem, allocator_: std.mem.Allocator) void {
+    self.deinit_queue.run();
+    self.deinit_queue.deinit();
+
     self.sync_system.deinit(self);
     self.renderpass_system.deinit(self);
     self.pipeline_system.deinit(self);
@@ -943,3 +954,40 @@ pub fn submit_command_buffer(
         submit_fence,
     );
 }
+
+pub const DeletionQueue = struct {
+    items: std.ArrayList(Item),
+
+    const Item = struct {
+        ptr: *anyopaque,
+        deletion_fn: *const fn (*anyopaque) void,
+    };
+
+    fn init(allocator_: std.mem.Allocator) DeletionQueue {
+        return .{
+            .items = std.ArrayList(Item).init(allocator_),
+        };
+    }
+
+    fn deinit(self: *DeletionQueue) void {
+        self.items.deinit();
+    }
+
+    pub fn insert(
+        self: *DeletionQueue,
+        ptr: *anyopaque,
+        deletion_fn: *const fn (*anyopaque) void,
+    ) !void {
+        try self.items.append(.{
+            .ptr = ptr,
+            .deletion_fn = deletion_fn,
+        });
+    }
+
+    fn run(self: *DeletionQueue) void {
+        var i: usize = 0;
+        while (i < self.items.items.len) : (i += 1) {
+            self.items.items[i].deletion_fn(self.items.items[i].ptr);
+        }
+    }
+};

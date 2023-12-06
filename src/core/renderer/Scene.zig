@@ -43,6 +43,13 @@ pub fn deinit(self: *Self) void {
     self.objects.deinit();
 }
 
+pub fn deinit_generic(self_: *anyopaque) void {
+    const self: *Self = @ptrCast(@alignCast(self_));
+    var allocator = self._renderer.allocator;
+    self.deinit();
+    allocator.destroy(self);
+}
+
 pub fn draw(self: *Self) !void {
     var prev_material: ?MaterialHandle = null;
 

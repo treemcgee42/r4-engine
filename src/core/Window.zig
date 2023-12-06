@@ -120,8 +120,12 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
 
     // ---
 
-    var scene = try Scene.init(core.allocator, &core.renderer);
-    defer scene.deinit();
+    var scene = try core.allocator.create(Scene);
+    scene.* = try Scene.init(core.allocator, &core.renderer);
+    try core.renderer.system.deinit_queue.insert(
+        @ptrCast(scene),
+        Scene.deinit_generic,
+    );
 
     var tri_verts = [_]Scene.Vertex{ .{
         .position = math.Vec3f.init(0.0, -0.5, 0.0),
