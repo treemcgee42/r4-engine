@@ -70,7 +70,16 @@ pub fn execute_command(
                 command_buffer,
             );
         },
-        else => unreachable,
+        .upload_push_constants => {
+            try execute_upload_push_constants(
+                renderer,
+                command.upload_push_constants,
+                command_buffer,
+            );
+        },
+        else => {
+            @panic("Unimplemented command");
+        },
     }
 }
 
@@ -85,14 +94,14 @@ fn execute_upload_push_constants(
     const vk_renderpass = renderer.system.get_renderpass_from_handle(vk_renderpass_handle).render_pass;
     const pipeline_layout = (try renderer.system.pipeline_system.query(
         renderer,
-        push_constants_data.pipeline,
+        virtual_pipeline,
         vk_renderpass,
     )).pipeline_layout;
 
     vulkan.vkCmdPushConstants(
         command_buffer,
         pipeline_layout,
-        .VK_SHADER_STAGE_VERTEX_BIT,
+        vulkan.VK_SHADER_STAGE_VERTEX_BIT,
         0,
         @sizeOf(PushConstants),
         &push_constants_data.push_constants,

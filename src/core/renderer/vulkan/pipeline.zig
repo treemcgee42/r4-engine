@@ -7,6 +7,7 @@ const Renderer = @import("../Renderer.zig");
 const VirtualPipeline = @import("../pipeline.zig").Pipeline;
 const buffer = @import("./buffer.zig");
 const Vertex = @import("../Scene.zig").Vertex;
+const PushConstants = @import("../Scene.zig").PushConstants;
 
 pub const Pipeline = l0vk.VkPipeline;
 
@@ -88,7 +89,26 @@ pub fn build_pipeline(
     const allocator = renderer.allocator;
     var system = renderer.system;
 
-    const pipeline_layout_info = l0vk.VkPipelineLayoutCreateInfo{};
+    var pipeline_layout_info = l0vk.VkPipelineLayoutCreateInfo{};
+    // //setup push constants
+    // VkPushConstantRange push_constant;
+    // //this push constant range starts at the beginning
+    // push_constant.offset = 0;
+    // //this push constant range takes up the size of a MeshPushConstants struct
+    // push_constant.size = sizeof(MeshPushConstants);
+    // //this push constant range is accessible only in the vertex shader
+    // push_constant.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+    // mesh_pipeline_layout_info.pPushConstantRanges = &push_constant;
+    // mesh_pipeline_layout_info.pushConstantRangeCount = 1;
+    var push_constant_ranges = [_]l0vk.VkPushConstantRange{.{
+        .offset = 0,
+        .size = @sizeOf(PushConstants),
+        .stageFlags = .{
+            .vertex = true,
+        },
+    }};
+    pipeline_layout_info.pushConstantRanges = &push_constant_ranges;
     const pipeline_layout = try l0vk.vkCreatePipelineLayout(
         system.logical_device,
         &pipeline_layout_info,

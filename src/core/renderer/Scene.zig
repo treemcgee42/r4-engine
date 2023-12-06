@@ -14,6 +14,8 @@ material_system: MaterialSystem,
 objects: std.ArrayList(Object),
 camera: Camera,
 
+frame_number: usize = 0,
+
 // ---
 
 const Self = @This();
@@ -30,7 +32,7 @@ pub fn init(allocator: std.mem.Allocator, renderer: *Renderer) !Self {
 
         .objects = std.ArrayList(Object).init(allocator),
         .camera = Camera.init(
-            math.Vec3f.init(0, -6, -10),
+            math.Vec3f.init(0, 0, -2),
             math.Vec3f.init(0, 0, 0),
             math.Vec3f.init(0, 1, 0),
         ),
@@ -51,6 +53,8 @@ pub fn deinit_generic(self_: *anyopaque) void {
 }
 
 pub fn draw(self: *Self) !void {
+    self.frame_number += 1;
+
     var prev_material: ?MaterialHandle = null;
 
     var i: usize = 0;
@@ -62,17 +66,19 @@ pub fn draw(self: *Self) !void {
             prev_material = object.material;
         }
 
-        // var view_matrix = self.camera.view_matrix;
-        // var projection_matrix = self.camera.projection_matrix;
-        // var transform_matrix = object.transform_matrix;
-        // var intermediate = math.mat4f_times_mat4f(&view_matrix, &transform_matrix);
-        // const mvp_matrix = math.mat4f_times_mat4f(&projection_matrix, &intermediate);
-        // const push_constants = PushConstants{
-        //     .data = undefined,
-        //     .transform_matrix = mvp_matrix,
-        // };
-        // const pipeline_handle = self.material_system.materials.items[object.material].pipeline;
-        // try self._renderer.upload_push_constants(pipeline_handle, push_constants);
+        var view_matrix = self.camera.view_matrix;
+        var projection_matrix = self.camera.projection_matrix;
+        var transform_matrix = object.transform_matrix;
+        var rotate_axis = math.Vec3f.init(0, 1, 0);
+        transform_matrix.apply_rotation(@as(f32, @floatFromInt(self.frame_number)) * 0.01, &rotate_axis);
+        var intermediate = math.mat4f_times_mat4f(&view_matrix, &transform_matrix);
+        const mvp_matrix = math.mat4f_times_mat4f(&projection_matrix, &intermediate);
+        const push_constants = PushConstants{
+            .data = undefined,
+            .transform_matrix = mvp_matrix,
+        };
+        const pipeline_handle = self.material_system.materials.items[object.material].pipeline;
+        try self._renderer.upload_push_constants(pipeline_handle, push_constants);
 
         var buffers = [_]vulkan.VkBuffer{object.mesh.vertex_buffer.buffer};
         try self._renderer.bind_vertex_buffers(&buffers);
