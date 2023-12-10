@@ -13,6 +13,7 @@ const main = @import("../main.zig");
 const VulkanSystem = @import("renderer/vulkan/VulkanSystem.zig");
 const Scene = @import("renderer/Scene.zig");
 const math = @import("../math.zig");
+const gltf_loader = @import("renderer/gltf_loader/gltf_loader.zig");
 
 const Window = @This();
 
@@ -91,6 +92,10 @@ pub fn init(core: *Core, info: *const WindowInitInfo) WindowInitError!Window {
 pub fn run_main_loop(self: *Window, core: *Core) !void {
     try core.renderer.enable_ui(self, .{ .docking_enabled = true });
     const window_size = self.size();
+
+    // --- TEST
+
+    try gltf_loader.load_from_file(&core.allocator, "models/Box.glb");
 
     // --- Scene pass, rendering to image.
     var scene_pass_render_target = try core.renderer.resource_system.create_resource(.{

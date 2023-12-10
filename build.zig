@@ -71,6 +71,17 @@ pub fn build(b: *std.Build) void {
         .flags = &[_][]const u8{},
     });
 
+    // CGLTF
+    exe.addIncludePath(.{ .path = "./external/cgltf" });
+    exe.addCSourceFile(.{
+        .file = .{ .path = "./external/cgltf/cgltf_impl.c" },
+        .flags = &[_][]const u8{},
+    });
+    const cgltf_module = b.createModule(.{
+        .source_file = .{ .path = "src/c/cgltf.zig" },
+    });
+    exe.addModule("cgltf", cgltf_module);
+
     // CIMGUI.
     exe.addIncludePath(.{ .path = "./external/cimgui" });
     exe.addIncludePath(.{ .path = "./external/cimgui/generator/output" });
