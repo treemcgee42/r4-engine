@@ -159,7 +159,7 @@ pub fn vkEnumerateInstanceExtensionProperties(
         }
     }
 
-    var available_extensions = try allocator.alloc(vulkan.VkExtensionProperties, available_extensions_count);
+    const available_extensions = try allocator.alloc(vulkan.VkExtensionProperties, available_extensions_count);
     result = vulkan.vkEnumerateInstanceExtensionProperties(
         null,
         &available_extensions_count,
@@ -207,7 +207,7 @@ pub fn vkEnumeratePhysicalDevices(
         }
     }
 
-    var devices = try allocator_.alloc(vulkan.VkPhysicalDevice, device_count);
+    const devices = try allocator_.alloc(vulkan.VkPhysicalDevice, device_count);
     result = vulkan.vkEnumeratePhysicalDevices(instance, &device_count, devices.ptr);
     if (result != vulkan.VK_SUCCESS) {
         switch (result) {
@@ -664,7 +664,7 @@ pub fn vkGetPhysicalDeviceQueueFamilyProperties(
         null,
     );
 
-    var vulkan_queue_families = try allocator.alloc(vulkan.VkQueueFamilyProperties, queue_family_count);
+    const vulkan_queue_families = try allocator.alloc(vulkan.VkQueueFamilyProperties, queue_family_count);
     defer allocator.free(vulkan_queue_families);
     vulkan.vkGetPhysicalDeviceQueueFamilyProperties(
         physical_device,
@@ -743,7 +743,7 @@ pub fn vkEnumerateDeviceExtensionProperties(
         }
     }
 
-    var available_extensions = try allocator.alloc(vulkan.VkExtensionProperties, extension_count);
+    const available_extensions = try allocator.alloc(vulkan.VkExtensionProperties, extension_count);
     result = vulkan.vkEnumerateDeviceExtensionProperties(
         physicalDevice,
         null,
@@ -826,7 +826,7 @@ pub fn vkGetPhysicalDeviceSurfaceFormatsKHR(
         return &.{};
     }
 
-    var formats = try allocator.alloc(vulkan.VkSurfaceFormatKHR, format_count);
+    const formats = try allocator.alloc(vulkan.VkSurfaceFormatKHR, format_count);
     defer allocator.free(formats);
     result = vulkan.vkGetPhysicalDeviceSurfaceFormatsKHR(
         physicalDevice,
@@ -899,7 +899,7 @@ pub fn vkGetPhysicalDeviceSurfacePresentModesKHR(
         return &.{};
     }
 
-    var present_modes = try allocator.alloc(vulkan.VkPresentModeKHR, present_mode_count);
+    const present_modes = try allocator.alloc(vulkan.VkPresentModeKHR, present_mode_count);
     defer allocator.free(present_modes);
     result = vulkan.vkGetPhysicalDeviceSurfacePresentModesKHR(
         physicalDevice,

@@ -39,7 +39,7 @@ const Command = union(enum) {
     draw: usize,
     begin_render_pass: RenderPassHandle,
     end_render_pass: RenderPassHandle,
-    bind_vertex_buffers: []vulkan.VkBuffer,
+    bind_vertex_buffer: vulkan.VkBuffer,
     upload_push_constants: UploadPushConstantsCommand,
 };
 
@@ -63,10 +63,10 @@ pub fn execute_command(
         .draw => {
             execute_draw(renderer, command.draw, command_buffer);
         },
-        .bind_vertex_buffers => {
-            try execute_bind_vertex_buffers(
+        .bind_vertex_buffer => {
+            try execute_bind_vertex_buffer(
                 renderer,
-                command.bind_vertex_buffers,
+                command.bind_vertex_buffer,
                 command_buffer,
             );
         },
@@ -108,23 +108,21 @@ fn execute_upload_push_constants(
     );
 }
 
-fn execute_bind_vertex_buffers(
+fn execute_bind_vertex_buffer(
     renderer: *Renderer,
-    vertex_buffers: []vulkan.VkBuffer,
+    vertex_buffers: vulkan.VkBuffer,
     command_buffer: vulkan.VkCommandBuffer,
 ) !void {
-    std.debug.assert(vertex_buffers.len == 1);
-
     const current_frame_context = renderer.current_frame_context.?;
     _ = current_frame_context;
 
-    var bufs = [_]vulkan.VkBuffer{vertex_buffers[0]};
+    var bufs = [_]vulkan.VkBuffer{vertex_buffers};
     var offsets = [_]vulkan.VkDeviceSize{0};
 
     vulkan.vkCmdBindVertexBuffers(
         command_buffer,
         0,
-        @intCast(vertex_buffers.len),
+        1,
         bufs[0..].ptr,
         offsets[0..].ptr,
     );

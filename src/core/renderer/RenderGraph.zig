@@ -123,7 +123,7 @@ pub fn init(renderer: *Renderer, command_buffer: *const CommandBuffer) !RenderGr
         // --- Handle productions.
         // Associate to each resource a the nodes which produces it.
 
-        var productions = renderer.get_renderpass_from_handle(render_pass).produces;
+        const productions = renderer.get_renderpass_from_handle(render_pass).produces;
         for (productions.items) |resource| {
             try resource_producer_map.put(resource, node_handle);
         }
@@ -153,7 +153,7 @@ pub fn init(renderer: *Renderer, command_buffer: *const CommandBuffer) !RenderGr
 
     i = 0;
     while (i < nodes.items.len) : (i += 1) {
-        var node = &nodes.items[i];
+        const node = &nodes.items[i];
 
         var j: usize = 0;
         while (j < node.parents.items.len) : (j += 1) {
@@ -168,7 +168,7 @@ pub fn init(renderer: *Renderer, command_buffer: *const CommandBuffer) !RenderGr
     var root_node: usize = 0;
     i = 0;
     while (i < nodes.items.len) : (i += 1) {
-        var node = &nodes.items[i];
+        const node = &nodes.items[i];
 
         var j: usize = 0;
         while (j < node.children.items.len) : (j += 1) {

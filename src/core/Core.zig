@@ -23,7 +23,7 @@ pub fn init(allocator: std.mem.Allocator) CoreInitError!Core {
         return CoreInitError.glfw_init_failed;
     }
 
-    var renderer = Renderer.init(allocator, .vulkan) catch {
+    const renderer = Renderer.init(allocator, .vulkan) catch {
         return CoreInitError.vulkan_init_failed;
     };
 

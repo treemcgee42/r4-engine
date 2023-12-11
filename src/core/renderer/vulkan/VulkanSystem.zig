@@ -232,13 +232,13 @@ pub fn init(allocator_: std.mem.Allocator) !VulkanSystem {
 
     glfw.glfwWindowHint(glfw.GLFW_VISIBLE, glfw.GLFW_FALSE);
     glfw.glfwWindowHint(glfw.GLFW_CLIENT_API, glfw.GLFW_NO_API);
-    var tmp_window = glfw.glfwCreateWindow(1, 1, "Temporary", null, null);
+    const tmp_window = glfw.glfwCreateWindow(1, 1, "Temporary", null, null);
     glfw.glfwWindowHint(glfw.GLFW_VISIBLE, glfw.GLFW_TRUE);
     if (tmp_window == null) {
         return VulkanError.window_creation_failed;
     }
     defer glfw.glfwDestroyWindow(tmp_window);
-    var surface = try create_surface(instance, tmp_window.?);
+    const surface = try create_surface(instance, tmp_window.?);
     defer l0vk.vkDestroySurfaceKHR(instance, surface, null);
 
     // ---
@@ -250,8 +250,8 @@ pub fn init(allocator_: std.mem.Allocator) !VulkanSystem {
     // ---
 
     const queue_family_indices = try find_queue_families(physical_device, allocator_, surface);
-    var graphics_queue = l0vk.vkGetDeviceQueue(logical_device, queue_family_indices.graphics_family.?, 0);
-    var present_queue = l0vk.vkGetDeviceQueue(logical_device, queue_family_indices.present_family.?, 0);
+    const graphics_queue = l0vk.vkGetDeviceQueue(logical_device, queue_family_indices.graphics_family.?, 0);
+    const present_queue = l0vk.vkGetDeviceQueue(logical_device, queue_family_indices.present_family.?, 0);
 
     // ---
 
@@ -270,7 +270,7 @@ pub fn init(allocator_: std.mem.Allocator) !VulkanSystem {
     // ---
 
     var vma_allocator: vma.VmaAllocator = undefined;
-    var res = vma.vmaCreateAllocator(&.{
+    const res = vma.vmaCreateAllocator(&.{
         .physicalDevice = @ptrCast(physical_device),
         .device = @ptrCast(logical_device),
         .instance = @ptrCast(instance),
@@ -281,7 +281,7 @@ pub fn init(allocator_: std.mem.Allocator) !VulkanSystem {
 
     // ---
 
-    var deinit_queue = DeletionQueue.init(allocator_);
+    const deinit_queue = DeletionQueue.init(allocator_);
 
     // ---
 
@@ -361,7 +361,7 @@ fn create_vulkan_instance(allocator_: std.mem.Allocator) !l0vk.VkInstance {
 
     // ---
 
-    var available_extensions = try l0vk.vkEnumerateInstanceExtensionProperties(allocator_);
+    const available_extensions = try l0vk.vkEnumerateInstanceExtensionProperties(allocator_);
     defer allocator_.free(available_extensions);
 
     const required_extensions = try get_required_extensions(allocator_);
@@ -414,7 +414,7 @@ fn get_required_extensions(allocator_: std.mem.Allocator) VulkanError!std.ArrayL
 }
 
 fn check_validation_layer_support(allocator_: std.mem.Allocator) !bool {
-    var available_layers = try l0vk.vkEnumerateInstanceLayerProperties(allocator_);
+    const available_layers = try l0vk.vkEnumerateInstanceLayerProperties(allocator_);
     defer allocator_.free(available_layers);
 
     var i: usize = 0;
@@ -466,7 +466,7 @@ fn pick_physical_device(
     allocator_: std.mem.Allocator,
     surface: l0vk.VkSurfaceKHR,
 ) !l0vk.VkPhysicalDevice {
-    var devices = try l0vk.vkEnumeratePhysicalDevices(allocator_, instance);
+    const devices = try l0vk.vkEnumeratePhysicalDevices(allocator_, instance);
     defer allocator_.free(devices);
 
     if (devices.len == 0) {
@@ -477,7 +477,7 @@ fn pick_physical_device(
 
     // std.log.info("{d} devices found:", .{device_count});
     for (devices) |device| {
-        var device_properties = l0vk.vkGetPhysicalDeviceProperties(device);
+        const device_properties = l0vk.vkGetPhysicalDeviceProperties(device);
         _ = device_properties;
 
         var device_was_selected = false;
@@ -548,7 +548,7 @@ pub fn find_queue_families(
 ) !QueueFamilyIndices {
     var indices = QueueFamilyIndices.init_null();
 
-    var queue_families = try l0vk.vkGetPhysicalDeviceQueueFamilyProperties(allocator_, physical_device);
+    const queue_families = try l0vk.vkGetPhysicalDeviceQueueFamilyProperties(allocator_, physical_device);
     defer allocator_.free(queue_families);
 
     var i: u32 = 0;
@@ -666,7 +666,7 @@ fn create_logical_device(
     defer queue_create_infos.deinit();
     const queue_priority: f32 = 1.0;
     for (unique_queue_families.items) |queue_family| {
-        var queue_create_info: l0vk.VkDeviceQueueCreateInfo = .{
+        const queue_create_info: l0vk.VkDeviceQueueCreateInfo = .{
             .queueFamilyIndex = queue_family,
             .queueCount = 1,
             .pQueuePriorities = &queue_priority,

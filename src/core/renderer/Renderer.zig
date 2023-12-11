@@ -52,7 +52,7 @@ pub const CurrentFrameContext = struct {
 const Renderer = @This();
 
 pub fn init(allocator: std.mem.Allocator, backend: Backend) !Renderer {
-    var system = switch (backend) {
+    const system = switch (backend) {
         .vulkan => try VulkanSystem.init(allocator),
     };
 
@@ -138,9 +138,9 @@ pub fn end_frame(self: *Renderer, window: *Window) !void {
     var swapchain = &window.swapchain.swapchain;
     var system = self.system;
 
-    var image_available_semaphore = swapchain.current_image_available_semaphore();
-    var render_finished_semaphore = swapchain.current_render_finished_semaphore();
-    var fence = swapchain.current_in_flight_fence();
+    const image_available_semaphore = swapchain.current_image_available_semaphore();
+    const render_finished_semaphore = swapchain.current_render_finished_semaphore();
+    const fence = swapchain.current_in_flight_fence();
 
     // --- Wait for the previous frame to finish.
 
@@ -189,8 +189,8 @@ pub fn end_frame(self: *Renderer, window: *Window) !void {
 
     // ---
 
-    var command_buffer_a = swapchain.a_command_buffers[swapchain.current_frame];
-    var command_buffer_b = swapchain.b_command_buffers[swapchain.current_frame];
+    const command_buffer_a = swapchain.a_command_buffers[swapchain.current_frame];
+    const command_buffer_b = swapchain.b_command_buffers[swapchain.current_frame];
 
     result = vulkan.vkResetCommandBuffer(command_buffer_a, 0);
     if (result != vulkan.VK_SUCCESS) {
@@ -312,12 +312,12 @@ pub fn bind_pipeline(self: *Renderer, pipeline_handle: PipelineHandle) !void {
     });
 }
 
-pub fn bind_vertex_buffers(
+pub fn bind_vertex_buffer(
     self: *Renderer,
-    buffers: []vulkan.VkBuffer,
+    buffer: vulkan.VkBuffer,
 ) !void {
     try self.command_buffer.commands.append(.{
-        .bind_vertex_buffers = buffers,
+        .bind_vertex_buffer = buffer,
     });
 }
 

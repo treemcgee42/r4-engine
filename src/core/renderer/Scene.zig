@@ -32,7 +32,7 @@ pub fn init(allocator: std.mem.Allocator, renderer: *Renderer) !Self {
 
         .objects = std.ArrayList(Object).init(allocator),
         .camera = Camera.init(
-            math.Vec3f.init(0, 0, -2),
+            math.Vec3f.init(0, 0, -5),
             math.Vec3f.init(0, 0, 0),
             math.Vec3f.init(0, 1, 0),
         ),
@@ -80,8 +80,7 @@ pub fn draw(self: *Self) !void {
         const pipeline_handle = self.material_system.materials.items[object.material].pipeline;
         try self._renderer.upload_push_constants(pipeline_handle, push_constants);
 
-        var buffers = [_]vulkan.VkBuffer{object.mesh.vertex_buffer.buffer};
-        try self._renderer.bind_vertex_buffers(&buffers);
+        try self._renderer.bind_vertex_buffer(object.mesh.vertex_buffer.buffer);
 
         try self._renderer.draw(object.mesh.vertices.items.len);
     }
@@ -122,11 +121,25 @@ pub const PushConstants = struct {
 
 // ---
 
-pub const Vertex = struct {
+const cglm = @import("../../c.zig").cglm;
+
+const VertexRaw = extern struct {
+    position: cglm.vec3,
+    normal: cglm.vec3,
+    color: cglm.vec3,
+};
+
+pub const Vertex = extern struct {
     position: math.Vec3f,
     normal: math.Vec3f,
     color: math.Vec3f,
 };
+
+comptime {
+    std.debug.assert(@offsetOf(Vertex, "position") == @offsetOf(VertexRaw, "position"));
+    std.debug.assert(@offsetOf(Vertex, "normal") == @offsetOf(VertexRaw, "normal"));
+    std.debug.assert(@offsetOf(Vertex, "color") == @offsetOf(VertexRaw, "color"));
+}
 
 pub const MeshSystem = @import("vulkan/mesh.zig").MeshSystem(Vertex);
 

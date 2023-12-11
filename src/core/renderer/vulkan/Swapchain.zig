@@ -243,7 +243,7 @@ fn create_semaphores(system: *VulkanSystem) ![]SemaphoreHandle {
 
     var i: usize = 0;
     while (i < max_frames_in_flight) : (i += 1) {
-        var semaphore = try system.create_semaphore();
+        const semaphore = try system.create_semaphore();
         semaphore_handles[i] = semaphore;
     }
 
@@ -255,7 +255,7 @@ fn create_fences(system: *VulkanSystem) ![]FenceHandle {
 
     var i: usize = 0;
     while (i < max_frames_in_flight) : (i += 1) {
-        var fence = try system.create_fence();
+        const fence = try system.create_fence();
         fence_handles[i] = fence;
     }
 

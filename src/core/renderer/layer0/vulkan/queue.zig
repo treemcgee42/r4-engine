@@ -98,7 +98,7 @@ pub fn vkQueueSubmit(
 
     const submits = pSubmits.to_vulkan_ty(allocator);
 
-    var result = vulkan.vkQueueSubmit(
+    const result = vulkan.vkQueueSubmit(
         queue,
         submitCount,
         &submits,

@@ -6,7 +6,6 @@ const std = @import("std");
 const vulkan = @import("vulkan");
 const vma = @import("vma");
 const VulkanError = @import("./VulkanSystem.zig").VulkanError;
-const cbuf = @import("../../../vulkan/command_buffer.zig");
 const vertex = @import("../../../vertex.zig");
 const l0vk = @import("../layer0/vulkan/vulkan.zig");
 const math = @import("../../../math.zig");
@@ -157,7 +156,7 @@ const Buffer = struct {
         dest: Buffer,
         buffer_size: vulkan.VkDeviceSize,
     ) VulkanError!void {
-        var command_buffer = try cbuf.begin_single_time_commands(device, command_pool);
+        const command_buffer = try begin_single_time_commands(device, command_pool);
 
         const copy_region = vulkan.VkBufferCopy{
             .srcOffset = 0,
@@ -167,7 +166,7 @@ const Buffer = struct {
 
         vulkan.vkCmdCopyBuffer(command_buffer, src.buffer, dest.buffer, 1, &copy_region);
 
-        try cbuf.end_single_time_commands(device, command_pool, graphics_queue, command_buffer);
+        try end_single_time_commands(device, command_pool, graphics_queue, command_buffer);
     }
 };
 
@@ -198,7 +197,7 @@ pub const VertexBuffer = struct {
         // --- Copy data to staging buffer.
 
         var data: ?*anyopaque = undefined;
-        var result = vulkan.vkMapMemory(device, staging_buffer.buffer_memory, 0, buffer_size, 0, &data);
+        const result = vulkan.vkMapMemory(device, staging_buffer.buffer_memory, 0, buffer_size, 0, &data);
         if (result != vulkan.VK_SUCCESS) {
             switch (result) {
                 vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
@@ -265,7 +264,7 @@ pub const IndexBuffer = struct {
         // --- Copy data to staging buffer.
 
         var data: ?*anyopaque = undefined;
-        var result = vulkan.vkMapMemory(device, staging_buffer.buffer_memory, 0, buffer_size, 0, &data);
+        const result = vulkan.vkMapMemory(device, staging_buffer.buffer_memory, 0, buffer_size, 0, &data);
         if (result != vulkan.VK_SUCCESS) {
             switch (result) {
                 vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
@@ -341,7 +340,7 @@ pub const UniformBuffers = struct {
 
             // --- Persistently map buffers.
 
-            var result = vulkan.vkMapMemory(device, buffer.buffer_memory, 0, buffer_size, 0, &buffers_mapped[i]);
+            const result = vulkan.vkMapMemory(device, buffer.buffer_memory, 0, buffer_size, 0, &buffers_mapped[i]);
             if (result != vulkan.VK_SUCCESS) {
                 switch (result) {
                     vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
@@ -441,7 +440,7 @@ pub const TextureImage = struct {
         // --- Copy data to staging buffer.
 
         var data: ?*anyopaque = undefined;
-        var result = vulkan.vkMapMemory(device, staging_buffer.buffer_memory, 0, image_size, 0, &data);
+        const result = vulkan.vkMapMemory(device, staging_buffer.buffer_memory, 0, image_size, 0, &data);
         if (result != vulkan.VK_SUCCESS) {
             switch (result) {
                 vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
@@ -538,7 +537,7 @@ fn create_texture_sampler(
     };
 
     var sampler: vulkan.VkSampler = undefined;
-    var result = vulkan.vkCreateSampler(device, &sampler_info, null, &sampler);
+    const result = vulkan.vkCreateSampler(device, &sampler_info, null, &sampler);
     if (result != vulkan.VK_SUCCESS) {
         switch (result) {
             vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
@@ -796,7 +795,7 @@ const VulkanImage = struct {
         graphics_queue: vulkan.VkQueue,
         buffer: Buffer,
     ) VulkanError!void {
-        const command_buffer = try cbuf.begin_single_time_commands(device, command_pool);
+        const command_buffer = try begin_single_time_commands(device, command_pool);
 
         const region = vulkan.VkBufferImageCopy{
             .bufferOffset = 0,
@@ -829,7 +828,7 @@ const VulkanImage = struct {
             &region,
         );
 
-        try cbuf.end_single_time_commands(device, command_pool, graphics_queue, command_buffer);
+        try end_single_time_commands(device, command_pool, graphics_queue, command_buffer);
     }
 
     pub fn create_image_view(
@@ -861,7 +860,7 @@ const VulkanImage = struct {
         };
 
         var image_view: vulkan.VkImageView = undefined;
-        var result = vulkan.vkCreateImageView(device, &view_info, null, &image_view);
+        const result = vulkan.vkCreateImageView(device, &view_info, null, &image_view);
         if (result != vulkan.VK_SUCCESS) {
             switch (result) {
                 vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
@@ -890,7 +889,7 @@ const VulkanImage = struct {
 
         // ---
 
-        var command_buffer = try cbuf.begin_single_time_commands(device, command_pool);
+        const command_buffer = try begin_single_time_commands(device, command_pool);
 
         var barrier = vulkan.VkImageMemoryBarrier{ .sType = vulkan.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, .image = self.image, .srcQueueFamilyIndex = vulkan.VK_QUEUE_FAMILY_IGNORED, .dstQueueFamilyIndex = vulkan.VK_QUEUE_FAMILY_IGNORED, .subresourceRange = .{
             .aspectMask = vulkan.VK_IMAGE_ASPECT_COLOR_BIT,
@@ -1015,7 +1014,7 @@ const VulkanImage = struct {
             &barrier,
         );
 
-        try cbuf.end_single_time_commands(device, command_pool, graphics_queue, command_buffer);
+        try end_single_time_commands(device, command_pool, graphics_queue, command_buffer);
     }
 
     // void generateMipmaps(VkImage image, int32_t texWidth, int32_t texHeight, uint32_t mipLevels) {
@@ -1044,7 +1043,7 @@ const VulkanImage = struct {
         new_layout: vulkan.VkImageLayout,
     ) VulkanError!void {
         _ = format;
-        const command_buffer = try cbuf.begin_single_time_commands(device, command_pool);
+        const command_buffer = try begin_single_time_commands(device, command_pool);
 
         var barrier = vulkan.VkImageMemoryBarrier{
             .sType = vulkan.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
@@ -1100,7 +1099,7 @@ const VulkanImage = struct {
             &barrier,
         );
 
-        try cbuf.end_single_time_commands(device, command_pool, graphics_queue, command_buffer);
+        try end_single_time_commands(device, command_pool, graphics_queue, command_buffer);
     }
 };
 
@@ -1167,3 +1166,93 @@ pub const AllocatedBuffer = struct {
         );
     }
 };
+
+// ---
+
+pub fn begin_single_time_commands(device: vulkan.VkDevice, command_pool: vulkan.VkCommandPool) VulkanError!vulkan.VkCommandBuffer {
+    const alloc_info = vulkan.VkCommandBufferAllocateInfo{
+        .sType = vulkan.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool = command_pool,
+        .level = vulkan.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = 1,
+    };
+
+    var command_buffer: vulkan.VkCommandBuffer = undefined;
+    var result = vulkan.vkAllocateCommandBuffers(device, &alloc_info, &command_buffer);
+    if (result != vulkan.VK_SUCCESS) {
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+            else => unreachable,
+        }
+    }
+    errdefer vulkan.vkFreeCommandBuffers(device, command_pool, 1, &command_buffer);
+
+    const command_buffer_begin_info = vulkan.VkCommandBufferBeginInfo{
+        .sType = vulkan.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = vulkan.VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+
+        .pInheritanceInfo = null,
+        .pNext = null,
+    };
+
+    result = vulkan.vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info);
+    if (result != vulkan.VK_SUCCESS) {
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+            else => unreachable,
+        }
+    }
+
+    return command_buffer;
+}
+
+pub fn end_single_time_commands(
+    device: vulkan.VkDevice,
+    command_pool: vulkan.VkCommandPool,
+    graphics_queue: vulkan.VkQueue,
+    command_buffer: vulkan.VkCommandBuffer,
+) VulkanError!void {
+    var result = vulkan.vkEndCommandBuffer(command_buffer);
+    if (result != vulkan.VK_SUCCESS) {
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return,
+            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return,
+            else => unreachable,
+        }
+    }
+
+    const submit_info = vulkan.VkSubmitInfo{
+        .sType = vulkan.VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .commandBufferCount = 1,
+        .pCommandBuffers = &command_buffer,
+
+        .pNext = null,
+        .waitSemaphoreCount = 0,
+        .pWaitSemaphores = null,
+        .pWaitDstStageMask = null,
+        .signalSemaphoreCount = 0,
+        .pSignalSemaphores = null,
+    };
+
+    result = vulkan.vkQueueSubmit(graphics_queue, 1, &submit_info, null);
+    if (result != vulkan.VK_SUCCESS) {
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+            else => unreachable,
+        }
+    }
+
+    result = vulkan.vkQueueWaitIdle(graphics_queue);
+    if (result != vulkan.VK_SUCCESS) {
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
+            vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
+            else => unreachable,
+        }
+    }
+
+    vulkan.vkFreeCommandBuffers(device, command_pool, 1, &command_buffer);
+}

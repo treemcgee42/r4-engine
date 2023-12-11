@@ -93,16 +93,13 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
     try core.renderer.enable_ui(self, .{ .docking_enabled = true });
     const window_size = self.size();
 
-    // --- TEST
-
-    try gltf_loader.load_from_file(&core.allocator, "models/Box.glb");
-
     // --- Scene pass, rendering to image.
-    var scene_pass_render_target = try core.renderer.resource_system.create_resource(.{
+    const scene_pass_render_target = try core.renderer.resource_system.create_resource(.{
         .kind = .color_texture,
         .width = window_size.width,
         .height = window_size.height,
     });
+
     var scene_pass_productions = [_]Resource{scene_pass_render_target};
     var scene_pass_info = Renderer.RenderPassInfo{
         .enable_imgui = false,
@@ -132,6 +129,10 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
         Scene.deinit_generic,
     );
 
+    const material_handle = try scene.material_system.register_material(Scene.Material{
+        .pipeline = scene_pipeline,
+    });
+
     var tri_verts = [_]Scene.Vertex{ .{
         .position = math.Vec3f.init(0.0, -0.5, 0.0),
         .normal = math.Vec3f.init(0, 0, 1),
@@ -146,17 +147,25 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
         .color = math.Vec3f.init(0, 0, 1),
     } };
     const tri_mesh = try scene.mesh_system.register("triangle", &tri_verts);
-    const material_handle = try scene.material_system.register_material(Scene.Material{
-        .pipeline = scene_pipeline,
-    });
+    var tri_translation = math.Vec3f.init(0, 1, 0);
     try scene.objects.append(.{
         .mesh = tri_mesh,
         .material = material_handle,
-        .transform_matrix = math.Mat4f.init_identity(),
+        .transform_matrix = math.Mat4f.init_translate(&tri_translation),
+    });
+
+    const cube_verts = try gltf_loader.load_from_file(&core.allocator, "models/Box.glb");
+    defer core.allocator.free(cube_verts);
+    const cube_mesh = try scene.mesh_system.register("cube", cube_verts);
+    var cube_translation = math.Vec3f.init(0, -1, 0);
+    try scene.objects.append(.{
+        .mesh = cube_mesh,
+        .material = material_handle,
+        .transform_matrix = math.Mat4f.init_translate(&cube_translation),
     });
 
     // --- Main pass.
-    var main_pass_render_target = try core.renderer.resource_system.create_resource(.{
+    const main_pass_render_target = try core.renderer.resource_system.create_resource(.{
         .kind = .final_texture,
         .width = window_size.width,
         .height = window_size.height,
@@ -185,6 +194,7 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
         .topology = .triangle_list,
         .render_pass = render_pass,
     });
+    _ = pipeline;
 
     // --- State
     var viewport_open = true;
@@ -262,8 +272,8 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
 
         try core.renderer.begin_renderpass(render_pass);
 
-        try core.renderer.bind_pipeline(pipeline);
-        try core.renderer.draw(3);
+        // try core.renderer.bind_pipeline(pipeline);
+        // try core.renderer.draw(3);
 
         try core.renderer.end_renderpass(render_pass);
 

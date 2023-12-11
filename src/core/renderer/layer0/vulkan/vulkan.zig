@@ -59,7 +59,7 @@ pub fn vkEnumerateInstanceLayerProperties(
         }
     }
 
-    var available_layers = try allocator.alloc(
+    const available_layers = try allocator.alloc(
         vulkan.VkLayerProperties,
         available_layers_count,
     );
@@ -196,7 +196,7 @@ pub fn vkCreateSwapchainKHR(
 ) !VkSwapchainKHR {
     var swapchain: vulkan.VkSwapchainKHR = undefined;
     const create_info = pCreateInfo.to_vulkan_ty();
-    var result = vulkan.vkCreateSwapchainKHR(device, &create_info, pAllocator, &swapchain);
+    const result = vulkan.vkCreateSwapchainKHR(device, &create_info, pAllocator, &swapchain);
     if (result != vulkan.VK_SUCCESS) {
         switch (result) {
             vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return vkCreateSwapchainKHRError.VK_ERROR_OUT_OF_HOST_MEMORY,
@@ -237,7 +237,7 @@ pub fn vkGetSwapchainImagesKHR(
         }
     }
 
-    var images = try allocator.alloc(l0vk.VkImage, image_count);
+    const images = try allocator.alloc(l0vk.VkImage, image_count);
     result = vulkan.vkGetSwapchainImagesKHR(device, swapchain, &image_count, images.ptr);
     if (result != vulkan.VK_SUCCESS) {
         switch (result) {

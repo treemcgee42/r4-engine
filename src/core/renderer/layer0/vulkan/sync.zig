@@ -34,7 +34,7 @@ pub fn vkCreateSemaphore(
     var create_info = pCreateInfo.to_vulkan_ty();
 
     var semaphore: vulkan.VkSemaphore = undefined;
-    var result = vulkan.vkCreateSemaphore(
+    const result = vulkan.vkCreateSemaphore(
         device,
         &create_info,
         pAllocator,
@@ -98,7 +98,7 @@ pub fn vkCreateFence(
     var create_info = pCreateInfo.to_vulkan_ty();
 
     var fence: vulkan.VkFence = undefined;
-    var result = vulkan.vkCreateFence(
+    const result = vulkan.vkCreateFence(
         device,
         &create_info,
         pAllocator,

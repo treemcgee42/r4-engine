@@ -151,7 +151,7 @@ fn link_glfw(b: *std.Build, exe: *std.build.Step.Compile, add_module: bool) void
 
 fn link_vulkan(b: *std.Build, exe: *std.build.Step.Compile, add_module: bool) void {
     exe.addLibraryPath(.{ .path = "/Users/ogmalladii/VulkanSDK/1.3.261.1/macOS/lib" });
-    exe.linkSystemLibrary("vulkan.1");
+    // exe.linkSystemLibrary("vulkan.1");
     exe.linkSystemLibrary("vulkan.1.3.261");
     exe.addIncludePath(.{ .path = "/Users/ogmalladii/VulkanSDK/1.3.261.1/macOS/include" });
 

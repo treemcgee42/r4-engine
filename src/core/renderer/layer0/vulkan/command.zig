@@ -176,7 +176,7 @@ pub fn vkBeginCommandBuffer(
     pBeginInfo: *const VkCommandBufferBeginInfo,
 ) vkBeginCommandBufferError!void {
     const begin_info = pBeginInfo.to_vulkan_ty();
-    var result = vulkan.vkBeginCommandBuffer(commandBuffer, &begin_info);
+    const result = vulkan.vkBeginCommandBuffer(commandBuffer, &begin_info);
     if (result != vulkan.VK_SUCCESS) {
         switch (result) {
             vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return vkBeginCommandBufferError.VK_ERROR_OUT_OF_HOST_MEMORY,
@@ -192,7 +192,7 @@ pub const vkEndCommandBufferError = error{
 };
 
 pub fn vkEndCommandBuffer(command_buffer: VkCommandBuffer) !void {
-    var result = vulkan.vkEndCommandBuffer(command_buffer);
+    const result = vulkan.vkEndCommandBuffer(command_buffer);
     if (result != vulkan.VK_SUCCESS) {
         switch (result) {
             vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return vkEndCommandBufferError.VK_ERROR_OUT_OF_HOST_MEMORY,
@@ -236,7 +236,7 @@ pub fn vkAllocateCommandBuffers(
     device: l0vk.VkDevice,
     pAllocateInfo: *const VkCommandBufferAllocateInfo,
 ) vkAllocateCommandBuffersError![]VkCommandBuffer {
-    var command_buffers = try allocator.alloc(VkCommandBuffer, pAllocateInfo.commandBufferCount);
+    const command_buffers = try allocator.alloc(VkCommandBuffer, pAllocateInfo.commandBufferCount);
     errdefer allocator.free(command_buffers);
 
     const alloc_info = pAllocateInfo.to_vulkan_ty();

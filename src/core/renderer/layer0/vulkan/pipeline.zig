@@ -270,7 +270,7 @@ pub const VkPipelineShaderStageCreateInfo = struct {
     pSpecializationInfo: ?*const VkSpecializationInfo = null,
 
     pub fn to_vulkan_ty(self: VkPipelineShaderStageCreateInfo, allocator: std.mem.Allocator) vulkan.VkPipelineShaderStageCreateInfo {
-        var specialization_info = allocator.create(vulkan.VkSpecializationInfo) catch {
+        const specialization_info = allocator.create(vulkan.VkSpecializationInfo) catch {
             @panic("l0vk ran out of memory");
         };
         var pSpecializationInfo: ?*const vulkan.VkSpecializationInfo = null;
@@ -1153,7 +1153,7 @@ pub fn vkCreateGraphicsPipelines(
 
     // ---
 
-    var pipelines = try allocator.alloc(VkPipeline, createInfos.len);
+    const pipelines = try allocator.alloc(VkPipeline, createInfos.len);
 
     var vk_createInfos = try fba_allocator.alloc(vulkan.VkGraphicsPipelineCreateInfo, createInfos.len);
     var i: usize = 0;
@@ -1161,7 +1161,7 @@ pub fn vkCreateGraphicsPipelines(
         vk_createInfos[i] = createInfos[i].to_vulkan_ty(fba_allocator);
     }
 
-    var result = vulkan.vkCreateGraphicsPipelines(
+    const result = vulkan.vkCreateGraphicsPipelines(
         device,
         pipelineCache,
         @intCast(vk_createInfos.len),

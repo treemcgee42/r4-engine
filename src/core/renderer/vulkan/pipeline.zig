@@ -87,20 +87,10 @@ pub fn build_pipeline(
     renderpass: l0vk.VkRenderPass,
 ) !PipelineAndLayout {
     const allocator = renderer.allocator;
-    var system = renderer.system;
+    const system = renderer.system;
 
     var pipeline_layout_info = l0vk.VkPipelineLayoutCreateInfo{};
-    // //setup push constants
-    // VkPushConstantRange push_constant;
-    // //this push constant range starts at the beginning
-    // push_constant.offset = 0;
-    // //this push constant range takes up the size of a MeshPushConstants struct
-    // push_constant.size = sizeof(MeshPushConstants);
-    // //this push constant range is accessible only in the vertex shader
-    // push_constant.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 
-    // mesh_pipeline_layout_info.pPushConstantRanges = &push_constant;
-    // mesh_pipeline_layout_info.pushConstantRangeCount = 1;
     var push_constant_ranges = [_]l0vk.VkPushConstantRange{.{
         .offset = 0,
         .size = @sizeOf(PushConstants),
@@ -127,13 +117,13 @@ pub fn build_pipeline(
 
     // ---
 
-    var vert_shader_stage_pipeline_create_info = l0vk.VkPipelineShaderStageCreateInfo{
+    const vert_shader_stage_pipeline_create_info = l0vk.VkPipelineShaderStageCreateInfo{
         .stage = l0vk.VkShaderStageFlags.Bits.vertex,
         .module = vert_shader_module,
         .pName = "main",
     };
 
-    var frag_shader_stage_pipeline_create_info = l0vk.VkPipelineShaderStageCreateInfo{
+    const frag_shader_stage_pipeline_create_info = l0vk.VkPipelineShaderStageCreateInfo{
         .stage = l0vk.VkShaderStageFlags.Bits.fragment,
         .module = frag_shader_module,
         .pName = "main",
@@ -268,7 +258,7 @@ pub fn build_pipeline(
         .basePipelineIndex = -1,
     };
 
-    var pipelines = try l0vk.vkCreateGraphicsPipelines(
+    const pipelines = try l0vk.vkCreateGraphicsPipelines(
         allocator,
         system.logical_device,
         @ptrCast(l0vk.VK_NULL_HANDLE),

@@ -22,7 +22,7 @@ pub fn _Mesh(comptime _VertexType: type) type {
         pub fn init(allocator: std.mem.Allocator) !Self {
             return .{
                 .vertices = std.ArrayList(VertexType).init(allocator),
-                .vertex_buffer = undefined,
+                .vertex_buffer = std.mem.zeroInit(buffer.AllocatedBuffer, .{}),
             };
         }
 
@@ -45,6 +45,7 @@ pub fn _Mesh(comptime _VertexType: type) type {
 
             const vmaallocInfo = vma.VmaAllocationCreateInfo{
                 .usage = vma.VMA_MEMORY_USAGE_CPU_TO_GPU,
+                .requiredFlags = vma.VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | vma.VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
             };
 
             var res = vma.vmaCreateBuffer(
@@ -80,6 +81,12 @@ pub fn _Mesh(comptime _VertexType: type) type {
             vma.vmaUnmapMemory(
                 vma_allocator,
                 self.vertex_buffer.allocation,
+            );
+            _ = vma.vmaFlushAllocation(
+                vma_allocator,
+                self.vertex_buffer.allocation,
+                0,
+                vulkan.VK_WHOLE_SIZE,
             );
         }
     };

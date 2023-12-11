@@ -46,7 +46,7 @@ pub const RenderPassInitInfo = struct {
 
 pub fn init(info: *const RenderPassInitInfo) !RenderPass {
     var system = info.system;
-    var swapchain = &info.window.swapchain.swapchain;
+    const swapchain = &info.window.swapchain.swapchain;
 
     var load_op_clear = true;
 
@@ -214,7 +214,7 @@ pub fn setup_imgui(
     // --- Initialize imgui library.
 
     _ = cimgui.igCreateContext(null);
-    var io = cimgui.igGetIO();
+    const io = cimgui.igGetIO();
     io.*.ConfigFlags = config_flags;
     _ = cimgui.ImGui_ImplGlfw_InitForVulkan(@ptrCast(window.window), true);
 
@@ -232,8 +232,8 @@ pub fn setup_imgui(
 
     // --- Load fonts.
 
-    var command_pool = system.command_pool;
-    var command_buffer = window.swapchain.swapchain.a_command_buffers[0];
+    const command_pool = system.command_pool;
+    const command_buffer = window.swapchain.swapchain.a_command_buffers[0];
 
     try l0vk.vkResetCommandPool(
         system.logical_device,
