@@ -91,6 +91,9 @@ pub fn build(b: *std.Build) void {
     });
     exe.addModule("cimgui", cimgui_module);
 
+    // r4 ecs
+    exe.linkLibrary(build_libr4ecs(b, optimize, target));
+
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
     // step when running `zig build`).
@@ -210,4 +213,22 @@ fn build_cimgui(b: *std.Build, target: std.zig.CrossTarget) *std.build.Step.Comp
     }
 
     return cimgui;
+}
+
+fn build_libr4ecs(
+    b: *std.Build,
+    optimize: std.builtin.OptimizeMode,
+    target: std.zig.CrossTarget,
+) *std.build.Step.Compile {
+    const libr4ecs = b.addSharedLibrary(.{
+        .name = "r4ecs",
+        .root_source_file = .{ .path = "src/ecs/components.zig" },
+        .target = target,
+        .optimize = optimize,
+        .version = .{ .major = 0, .minor = 1, .patch = 0 },
+    });
+
+    b.installArtifact(libr4ecs);
+
+    return libr4ecs;
 }
