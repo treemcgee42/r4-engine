@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const du = @import("debug_utils");
 
 const glfw = @import("c.zig").glfw;
 const cglm = @import("c.zig").cglm;
@@ -23,7 +24,7 @@ pub fn main() !void {
 
     var core = try Core.init(allocator);
     defer core.deinit();
-    std.log.info("r4 core intialized", .{});
+    du.log("core", .info, "r4 core intialized", .{});
 
     const window_init_info = Window.WindowInitInfo{};
     var window = try Window.init(&core, &window_init_info);

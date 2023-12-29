@@ -1,4 +1,5 @@
 const std = @import("std");
+const du = @import("debug_utils");
 const cgltf = @import("cgltf");
 const math = @import("../../../math.zig");
 // In the future this could probably be generic.
@@ -253,13 +254,18 @@ fn parse_primitive_verts_type_triangles(
                 position_accessor = attribute.data; // &gltf_data.accessors[@intCast(attribute.index)];
             },
             else => {
-                std.log.warn("{s}\tunhandled attribute type {s}", .{ @src().fn_name, attribute.name });
+                du.log(
+                    "renderer",
+                    .warn,
+                    "in function {s}: GLTF data includes attribute type '{s}' but the parser doesn't know how to parse it, so it will be ignored",
+                    .{ @src().fn_name, attribute.name },
+                );
             },
         }
     }
 
-    std.debug.assert(position_accessor != null);
-    std.debug.assert(indices_accessor != null);
+    du.production_assert(position_accessor != null);
+    du.production_assert(indices_accessor != null);
 
     var vertices = try allocator.alloc(Vertex, indices_accessor.?.count);
     errdefer allocator.free(vertices);
@@ -329,7 +335,9 @@ pub fn load_from_file(allocator: *std.mem.Allocator, path_to_gltf_file: [*c]cons
     result = cgltf.cgltf_load_buffers(&cgltf_options, out_data, path_to_gltf_file);
     try handle_cgltf_result(result);
 
-    std.log.info(
+    du.log(
+        "renderer",
+        .debug,
         "Loaded GLTF file {s}; {d} meshes, {d} nodes",
         .{
             path_to_gltf_file,

@@ -27,6 +27,12 @@ pub fn build(b: *std.Build) void {
     exe.linkLibC();
     exe.linkLibCpp();
 
+    // debug utils
+    const debug_utils_module = b.createModule(.{
+        .source_file = .{ .path = "src/debug_utils/lib.zig" },
+    });
+    exe.addModule("debug_utils", debug_utils_module);
+
     // GLFW.
     link_glfw(b, exe, true);
 

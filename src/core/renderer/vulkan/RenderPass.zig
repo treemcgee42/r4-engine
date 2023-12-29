@@ -1,4 +1,5 @@
 const std = @import("std");
+const du = @import("debug_utils");
 const l0vk = @import("../layer0/vulkan/vulkan.zig");
 const Window = @import("../../Window.zig");
 const cimgui = @import("cimgui");
@@ -111,7 +112,7 @@ pub fn init(info: *const RenderPassInitInfo) !RenderPass {
 
     if (info.imgui_enabled) {
         try to_return.setup_imgui(system, info.window, info.imgui_config_flags);
-        std.log.info("imgui initialized", .{});
+        du.log("renderer", .info, "imgui initialized", .{});
     }
 
     return to_return;

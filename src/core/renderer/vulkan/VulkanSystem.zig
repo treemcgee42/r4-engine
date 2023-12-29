@@ -1,4 +1,5 @@
 const std = @import("std");
+const du = @import("debug_utils");
 const builtin = @import("builtin");
 const glfw = @import("glfw");
 const DebugMessenger = @import("./DebugMessenger.zig");
@@ -285,7 +286,7 @@ pub fn init(allocator_: std.mem.Allocator) !VulkanSystem {
 
     // ---
 
-    std.log.info("vulkan backend initialized", .{});
+    du.log("core", .info, "Vulkan backend initialized", .{});
 
     return .{
         .allocator = allocator_,
