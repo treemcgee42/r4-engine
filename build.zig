@@ -33,6 +33,18 @@ pub fn build(b: *std.Build) void {
     });
     exe.addModule("debug_utils", debug_utils_module);
 
+    // ecs
+    const ecs_module = b.createModule(.{
+        .source_file = .{ .path = "src/ecs/lib.zig" },
+        .dependencies = &.{
+            .{
+                .name = "debug_utils",
+                .module = debug_utils_module,
+            },
+        },
+    });
+    exe.addModule("ecs", ecs_module);
+
     // GLFW.
     link_glfw(b, exe, true);
 
@@ -96,9 +108,6 @@ pub fn build(b: *std.Build) void {
         .source_file = .{ .path = "src/c/cimgui.zig" },
     });
     exe.addModule("cimgui", cimgui_module);
-
-    // r4 ecs
-    exe.linkLibrary(build_libr4ecs(b, optimize, target));
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
@@ -219,22 +228,4 @@ fn build_cimgui(b: *std.Build, target: std.zig.CrossTarget) *std.build.Step.Comp
     }
 
     return cimgui;
-}
-
-fn build_libr4ecs(
-    b: *std.Build,
-    optimize: std.builtin.OptimizeMode,
-    target: std.zig.CrossTarget,
-) *std.build.Step.Compile {
-    const libr4ecs = b.addSharedLibrary(.{
-        .name = "r4ecs",
-        .root_source_file = .{ .path = "src/ecs/components.zig" },
-        .target = target,
-        .optimize = optimize,
-        .version = .{ .major = 0, .minor = 1, .patch = 0 },
-    });
-
-    b.installArtifact(libr4ecs);
-
-    return libr4ecs;
 }

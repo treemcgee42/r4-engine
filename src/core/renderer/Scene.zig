@@ -1,4 +1,6 @@
 const std = @import("std");
+const dutil = @import("debug_utils");
+const r4_ecs = @import("ecs");
 const math = @import("../../math.zig");
 const PipelineHandle = @import("./Renderer.zig").PipelineHandle;
 const Renderer = @import("./Renderer.zig");
@@ -11,7 +13,8 @@ _renderer: *Renderer,
 mesh_system: MeshSystem,
 material_system: MaterialSystem,
 
-objects: std.ArrayList(Object),
+objects: std.ArrayList(r4_ecs.Entity),
+objects_ecs: r4_ecs.Ecs,
 camera: Camera,
 
 frame_number: usize = 0,
@@ -24,13 +27,21 @@ pub fn init(allocator: std.mem.Allocator, renderer: *Renderer) !Self {
     const mesh_system = try MeshSystem.init(renderer);
     const material_system = MaterialSystem.init(allocator);
 
+    var ecs = r4_ecs.Ecs.init(allocator);
+    try ecs.register_component(MeshSystem.Mesh);
+    try ecs.register_component(MaterialHandle);
+    try ecs.register_component(Transform);
+
+    dutil.log("scene", .info, "scene initialized", .{});
+
     return .{
         ._renderer = renderer,
 
         .mesh_system = mesh_system,
         .material_system = material_system,
 
-        .objects = std.ArrayList(Object).init(allocator),
+        .objects = std.ArrayList(r4_ecs.Entity).init(allocator),
+        .objects_ecs = ecs,
         .camera = Camera.init(
             math.Vec3f.init(0, 0, -5),
             math.Vec3f.init(0, 0, 0),
@@ -43,6 +54,7 @@ pub fn deinit(self: *Self) void {
     self.mesh_system.deinit();
     self.material_system.deinit();
     self.objects.deinit();
+    self.objects_ecs.deinit();
 }
 
 pub fn deinit_generic(self_: *anyopaque) void {
@@ -50,6 +62,28 @@ pub fn deinit_generic(self_: *anyopaque) void {
     var allocator = self._renderer.allocator;
     self.deinit();
     allocator.destroy(self);
+}
+
+pub fn create_object(self: *Self) !r4_ecs.Entity {
+    const entity = self.objects_ecs.create_entity();
+    try self.objects.append(entity);
+    return entity;
+}
+
+pub fn assign_mesh_to_object(self: *Self, object: r4_ecs.Entity, mesh: MeshSystem.Mesh) !void {
+    try self.objects_ecs.add_component_for_entity(object, mesh);
+}
+
+pub fn assign_material_to_object(
+    self: *Self,
+    object: r4_ecs.Entity,
+    material: MaterialHandle,
+) !void {
+    try self.objects_ecs.add_component_for_entity(object, material);
+}
+
+pub fn assign_transform_to_object(self: *Self, object: r4_ecs.Entity, transform: Transform) !void {
+    try self.objects_ecs.add_component_for_entity(object, transform);
 }
 
 pub fn draw(self: *Self) !void {
@@ -61,14 +95,42 @@ pub fn draw(self: *Self) !void {
     while (i < self.objects.items.len) : (i += 1) {
         const object = self.objects.items[i];
 
-        if (object.material != prev_material) {
-            try self.bind_material(object.material);
-            prev_material = object.material;
+        const mesh = self.objects_ecs.get_component_for_entity(object, MeshSystem.Mesh) orelse {
+            dutil.log(
+                "scene",
+                .warn,
+                "object {} is missing mesh",
+                .{object},
+            );
+            continue;
+        };
+        const material = self.objects_ecs.get_component_for_entity(object, MaterialHandle) orelse {
+            dutil.log(
+                "scene",
+                .warn,
+                "object {} is missing material",
+                .{object},
+            );
+            continue;
+        };
+        const transform = self.objects_ecs.get_component_for_entity(object, Transform) orelse {
+            dutil.log(
+                "scene",
+                .warn,
+                "object {} is missing transform",
+                .{object},
+            );
+            continue;
+        };
+
+        if (material.* != prev_material) {
+            try self.bind_material(material.*);
+            prev_material = material.*;
         }
 
         var view_matrix = self.camera.view_matrix;
         var projection_matrix = self.camera.projection_matrix;
-        var transform_matrix = object.transform_matrix;
+        var transform_matrix = transform.*;
         var rotate_axis = math.Vec3f.init(0, 1, 0);
         transform_matrix.apply_rotation(@as(f32, @floatFromInt(self.frame_number)) * 0.01, &rotate_axis);
         var intermediate = math.mat4f_times_mat4f(&view_matrix, &transform_matrix);
@@ -77,12 +139,12 @@ pub fn draw(self: *Self) !void {
             .data = undefined,
             .transform_matrix = mvp_matrix,
         };
-        const pipeline_handle = self.material_system.materials.items[object.material].pipeline;
+        const pipeline_handle = self.material_system.materials.items[material.*].pipeline;
         try self._renderer.upload_push_constants(pipeline_handle, push_constants);
 
-        try self._renderer.bind_vertex_buffer(object.mesh.vertex_buffer.buffer);
+        try self._renderer.bind_vertex_buffer(mesh.vertex_buffer.buffer);
 
-        try self._renderer.draw(object.mesh.vertices.items.len);
+        try self._renderer.draw(mesh.vertices.items.len);
     }
 }
 
@@ -179,6 +241,8 @@ pub const MaterialSystem = struct {
 };
 
 // ---
+
+pub const Transform = math.Mat4f;
 
 pub const Object = struct {
     mesh: MeshSystem.Mesh,

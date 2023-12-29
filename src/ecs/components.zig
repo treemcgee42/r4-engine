@@ -1,5 +1,7 @@
 const std = @import("std");
+const dutil = @import("debug_utils");
 const Entity = @import("./entities.zig").Entity;
+const EcsError = @import("./lib.zig").EcsError;
 
 fn ComponentArray(comptime ty: type) type {
     return struct {
@@ -28,6 +30,18 @@ fn ComponentArray(comptime ty: type) type {
             entity: Entity,
             component: ty,
         ) !void {
+            const component_idx = self.entity_to_idx_map.get(entity);
+            if (component_idx != null) {
+                dutil.log(
+                    "ecs",
+                    .warn,
+                    "Component already exists for entity {d}, overriding",
+                    .{entity.id},
+                );
+                self.components.items[component_idx.?] = component;
+                return;
+            }
+
             try self.components.append(component);
             try self.entity_to_idx_map.put(entity, self.components.items.len - 1);
             try self.idx_to_entity_map.put(self.components.items.len - 1, entity);
@@ -36,13 +50,21 @@ fn ComponentArray(comptime ty: type) type {
         fn remove_component_for_entity(
             self: *Self,
             entity: Entity,
-        ) !void {
+        ) EcsError!void {
             // Removes the item, move the last item in the array to the
             // position of the removed item, update the entity-index map
             // accordingly.
 
             std.debug.assert(self.entity_to_idx_map.contains(entity));
-            const idx = self.entity_to_idx_map.get(entity) orelse return;
+            const idx = self.entity_to_idx_map.get(entity) orelse {
+                dutil.log(
+                    "ecs",
+                    .err,
+                    "A component index was not assigned to the entity {d}",
+                    .{entity.id},
+                );
+                return;
+            };
             _ = self.entity_to_idx_map.remove(entity);
             std.debug.assert(self.idx_to_entity_map.contains(idx));
             _ = self.idx_to_entity_map.remove(idx);
@@ -161,18 +183,18 @@ const TypeErasedComponentArray = struct {
 //     }
 // };
 
-const ComponentManager = struct {
+pub const ComponentManager = struct {
     allocator: std.mem.Allocator,
     component_arrays: std.StringHashMap(TypeErasedComponentArray),
 
-    fn init(allocator: std.mem.Allocator) ComponentManager {
+    pub fn init(allocator: std.mem.Allocator) ComponentManager {
         return .{
             .allocator = allocator,
             .component_arrays = std.StringHashMap(TypeErasedComponentArray).init(allocator),
         };
     }
 
-    fn deinit(self: *ComponentManager) void {
+    pub fn deinit(self: *ComponentManager) void {
         var it = self.component_arrays.iterator();
         while (it.next()) |kv| {
             const array_ptr = kv.value_ptr;
@@ -181,11 +203,18 @@ const ComponentManager = struct {
         self.component_arrays.deinit();
     }
 
-    fn register_component(
+    pub fn register_component(
         self: *ComponentManager,
         comptime component_ty: type,
     ) !void {
+        dutil.log("ecs", .debug, "in {s}", .{@src().fn_name});
         const component_array = try TypeErasedComponentArray.init(self.allocator, component_ty);
+        dutil.log(
+            "ecs",
+            .debug,
+            "{s} - created component array for type {s}",
+            .{ @src().fn_name, @typeName(component_ty) },
+        );
         try self.component_arrays.put(@typeName(component_ty), component_array);
     }
 
@@ -197,25 +226,29 @@ const ComponentManager = struct {
         return type_erased_array.cast(component_ty);
     }
 
-    fn add_component_for_entity(
+    pub fn add_component_for_entity(
         self: *ComponentManager,
         entity: Entity,
         component: anytype,
-    ) !void {
-        var component_array = self.get_component_array(@TypeOf(component));
-        try component_array.?.add_component_for_entity(entity, component);
+    ) EcsError!void {
+        var component_array = self.get_component_array(@TypeOf(component)) orelse {
+            return EcsError.adding_unregistered_component;
+        };
+        try component_array.add_component_for_entity(entity, component);
     }
 
-    fn remove_component_for_entity(
+    pub fn remove_component_for_entity(
         self: *ComponentManager,
         entity: Entity,
         comptime component_ty: type,
     ) !void {
-        var component_array = self.get_component_array(component_ty);
-        try component_array.?.remove_component_for_entity(entity);
+        var component_array = self.get_component_array(component_ty) orelse {
+            return .removing_unregistered_component;
+        };
+        try component_array.remove_component_for_entity(entity);
     }
 
-    fn get_component_for_entity(
+    pub fn get_component_for_entity(
         self: *ComponentManager,
         entity: Entity,
         comptime component_ty: type,

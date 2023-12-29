@@ -148,21 +148,19 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
     } };
     const tri_mesh = try scene.mesh_system.register("triangle", &tri_verts);
     var tri_translation = math.Vec3f.init(0, 1, 0);
-    try scene.objects.append(.{
-        .mesh = tri_mesh,
-        .material = material_handle,
-        .transform_matrix = math.Mat4f.init_translate(&tri_translation),
-    });
+    const tri_scene_obj = try scene.create_object();
+    try scene.assign_mesh_to_object(tri_scene_obj, tri_mesh);
+    try scene.assign_material_to_object(tri_scene_obj, material_handle);
+    try scene.assign_transform_to_object(tri_scene_obj, math.Mat4f.init_translate(&tri_translation));
 
     const cube_verts = try gltf_loader.load_from_file(&core.allocator, "models/Box.glb");
     defer core.allocator.free(cube_verts);
     const cube_mesh = try scene.mesh_system.register("cube", cube_verts);
     var cube_translation = math.Vec3f.init(0, -1, 0);
-    try scene.objects.append(.{
-        .mesh = cube_mesh,
-        .material = material_handle,
-        .transform_matrix = math.Mat4f.init_translate(&cube_translation),
-    });
+    const cube_scene_obj = try scene.create_object();
+    try scene.assign_mesh_to_object(cube_scene_obj, cube_mesh);
+    try scene.assign_material_to_object(cube_scene_obj, material_handle);
+    try scene.assign_transform_to_object(cube_scene_obj, math.Mat4f.init_translate(&cube_translation));
 
     // --- Main pass.
     const main_pass_render_target = try core.renderer.resource_system.create_resource(.{
