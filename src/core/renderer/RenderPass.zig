@@ -17,6 +17,7 @@ enable_imgui: bool,
 depends_on: std.ArrayList(Resource),
 produces: std.ArrayList(Resource),
 tag: RenderPassTag,
+depth_test: bool,
 name: []const u8,
 
 const RenderPass = @This();
@@ -33,6 +34,7 @@ pub const RenderPassInfo = struct {
     tag: RenderPassTag,
     produces: []Resource,
     depends_on: []Resource,
+    depth_test: bool = false,
     name: []const u8,
 };
 
@@ -61,6 +63,7 @@ pub fn init(info: *RenderPassInfo) !RenderPass {
         .produces = produces,
         .tag = info.tag,
         .name = info.name,
+        .depth_test = info.depth_test,
     };
 }
 

@@ -108,6 +108,7 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
         .tag = .render_to_image,
         .produces = &scene_pass_productions,
         .depends_on = &[_]Resource{},
+        .depth_test = true,
         .name = "Scene Pass",
     };
     const scene_pass = try core.renderer.create_renderpass(&scene_pass_info);
@@ -117,6 +118,7 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
         .fragment_shader_filename = "shaders/compiled_output/tri_mesh.frag.spv",
         .front_face_orientation = .clockwise,
         .topology = .triangle_list,
+        .depth_test_enabled = true,
         .render_pass = scene_pass,
     });
 
@@ -156,7 +158,7 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
     const cube_verts = try gltf_loader.load_from_file(&core.allocator, "models/Box.glb");
     defer core.allocator.free(cube_verts);
     const cube_mesh = try scene.mesh_system.register("cube", cube_verts);
-    var cube_translation = math.Vec3f.init(0, 1, -2);
+    var cube_translation = math.Vec3f.init(0, 1, 2);
     const cube_scene_obj = try scene.create_object();
     try scene.assign_mesh_to_object(cube_scene_obj, cube_mesh);
     try scene.assign_material_to_object(cube_scene_obj, material_handle);

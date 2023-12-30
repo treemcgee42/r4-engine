@@ -13,6 +13,7 @@ pub const Pipeline = struct {
     fragment_shader_filename: []const u8,
     topology: Topology,
     front_face_orientation: FrontFaceOrientation,
+    depth_test_enabled: bool = false,
 
     pub const Topology = enum {
         triangle_list,

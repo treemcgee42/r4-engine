@@ -230,6 +230,8 @@ pub const VkDependencyFlags = packed struct(u32) {
     };
 };
 
+pub const VK_SUBPASS_EXTERNAL = vulkan.VK_SUBPASS_EXTERNAL;
+
 pub const VkSubpassDependency = struct {
     srcSubpass: u32,
     dstSubpass: u32,

@@ -234,6 +234,25 @@ pub fn build_pipeline(
         },
     };
 
+    // -- Depth stencil.
+
+    var depth_stencil_state: l0vk.VkPipelineDepthStencilStateCreateInfo = undefined;
+    var pDepthStencilState: ?*const l0vk.VkPipelineDepthStencilStateCreateInfo = null;
+    if (virtual_pipeline.depth_test_enabled) {
+        depth_stencil_state = l0vk.VkPipelineDepthStencilStateCreateInfo{
+            .depthTestEnable = true,
+            .depthWriteEnable = true,
+            .depthCompareOp = l0vk.VkCompareOp.less_or_equal,
+            .depthBoundsTestEnable = false,
+            .minDepthBounds = 0.0,
+            .maxDepthBounds = 1.0,
+            .stencilTestEnable = false,
+            .front = std.mem.zeroes(l0vk.VkStencilOpState),
+            .back = std.mem.zeroes(l0vk.VkStencilOpState),
+        };
+        pDepthStencilState = &depth_stencil_state;
+    }
+
     // -- Pipeline.
 
     const pipeline_info = l0vk.VkGraphicsPipelineCreateInfo{
@@ -247,7 +266,7 @@ pub fn build_pipeline(
         .pViewportState = &viewport_state,
         .pRasterizationState = &rasterizer,
         .pMultisampleState = &multisampling,
-        .pDepthStencilState = null,
+        .pDepthStencilState = pDepthStencilState,
         .pColorBlendState = &color_blending,
         .pDynamicState = &dynamic_state,
 

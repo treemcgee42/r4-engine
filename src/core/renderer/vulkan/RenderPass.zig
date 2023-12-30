@@ -27,6 +27,7 @@ clear_color: [4]f32 = .{ 0, 0, 0, 1 },
 
 const Image = union(enum) {
     color: buffer.ColorImage,
+    depth: buffer.DepthImage,
 };
 
 pub const RenderArea = struct {
@@ -42,6 +43,7 @@ pub const RenderPassInitInfo = struct {
     imgui_config_flags: c_int = 0,
     tag: RenderPassTag,
     render_area: RenderArea,
+    depth_buffered: bool = false,
     name: []const u8,
 };
 
@@ -60,7 +62,7 @@ pub fn init(info: *const RenderPassInitInfo) !RenderPass {
             render_pass = try build_basic_primary_renderpass(system, swapchain, load_op_clear);
         },
         .render_to_image => {
-            render_pass = try build_render_to_image_renderpass(system, swapchain);
+            render_pass = try build_render_to_image_renderpass(system, swapchain, info.depth_buffered);
         },
     }
 
@@ -71,7 +73,9 @@ pub fn init(info: *const RenderPassInitInfo) !RenderPass {
             images = try system.allocator.alloc(Image, 0);
         },
         .render_to_image => {
-            images = try system.allocator.alloc(Image, 1);
+            const num_images: usize = if (info.depth_buffered) 2 else 1;
+            images = try system.allocator.alloc(Image, num_images);
+
             const image = try buffer.ColorImage.init(
                 system.physical_device,
                 system.logical_device,
@@ -84,6 +88,18 @@ pub fn init(info: *const RenderPassInitInfo) !RenderPass {
             );
             images[0] = .{ .color = image };
             info.system.tmp_image = image;
+
+            if (info.depth_buffered) {
+                const depth_image = try buffer.DepthImage.init(
+                    system.physical_device,
+                    system.logical_device,
+                    system.vma_allocator,
+                    info.render_area.width,
+                    info.render_area.height,
+                    1,
+                );
+                images[1] = .{ .depth = depth_image };
+            }
         },
     }
 
@@ -133,11 +149,13 @@ pub fn deinit(self: *RenderPass, allocator: std.mem.Allocator, system: *VulkanSy
     }
     allocator.free(self.framebuffers);
 
-    i = 0;
-    while (i < self.images.len) : (i += 1) {
-        self.images[i].color.deinit(system.logical_device, system.vma_allocator);
+    if (self.images.len > 0) {
+        self.images[0].color.deinit(system.logical_device, system.vma_allocator);
+        if (self.images.len > 1) {
+            self.images[1].depth.deinit(system.logical_device, system.vma_allocator);
+        }
+        allocator.free(self.images);
     }
-    allocator.free(self.images);
 
     l0vk.vkDestroyRenderPass(system.logical_device, self.render_pass, null);
 }
@@ -504,36 +522,116 @@ fn build_render_to_image_color_attachment(swapchain: *Swapchain) !AttachmentAndR
     };
 }
 
+fn build_render_to_image_depth_attachment() !AttachmentAndRef {
+    const depth_attachment = l0vk.VkAttachmentDescription{
+        .flags = .{},
+        .format = .d32_sfloat, // hardcoded for now
+        .samples = .VK_SAMPLE_COUNT_1_BIT,
+        .loadOp = .clear,
+        .storeOp = .store,
+        .stencilLoadOp = .clear,
+        .stencilStoreOp = .dont_care,
+        .initialLayout = .undefined,
+        .finalLayout = .depth_stencil_attachment_optimal,
+    };
+
+    const depth_attachment_ref = l0vk.VkAttachmentReference{
+        .attachment = 1,
+        .layout = .depth_stencil_attachment_optimal,
+    };
+
+    return AttachmentAndRef{
+        .attachment = depth_attachment,
+        .ref = depth_attachment_ref,
+    };
+}
+
 fn build_render_to_image_renderpass(
     system: *VulkanSystem,
     swapchain: *Swapchain,
+    with_depth_attachment: bool,
 ) !l0vk.VkRenderPass {
     // --- Attachments.
 
     const color_attachment = try build_render_to_image_color_attachment(swapchain);
     const color_attachments = [_]l0vk.VkAttachmentReference{color_attachment.ref};
 
+    var depth_attachment: ?AttachmentAndRef = null;
+    if (with_depth_attachment) {
+        depth_attachment = try build_render_to_image_depth_attachment();
+    }
+
     // --- Subpass.
+
+    const pDepthStencilAttachment: ?*l0vk.VkAttachmentReference = if (with_depth_attachment) &depth_attachment.?.ref else null;
 
     const subpass = l0vk.VkSubpassDescription{
         .pipelineBindPoint = .graphics,
         .colorAttachments = &color_attachments,
         .inputAttachments = &[0]l0vk.VkAttachmentReference{},
         .resolveAttachments = &[0]l0vk.VkAttachmentReference{},
-        .pDepthStencilAttachment = null,
+        .pDepthStencilAttachment = pDepthStencilAttachment,
         .preserveAttachments = &[0]u32{},
     };
 
     // ---
 
-    const attachments = [_]l0vk.VkAttachmentDescription{
-        color_attachment.attachment,
+    var attachments = [2]l0vk.VkAttachmentDescription{ undefined, undefined };
+    var pAttachments: []l0vk.VkAttachmentDescription = undefined;
+    attachments[0] = color_attachment.attachment;
+    if (with_depth_attachment) {
+        attachments[1] = depth_attachment.?.attachment;
+        pAttachments = &attachments;
+    } else {
+        pAttachments = attachments[0..1];
+    }
+
+    const color_dependency = l0vk.VkSubpassDependency{
+        .srcSubpass = l0vk.VK_SUBPASS_EXTERNAL,
+        .dstSubpass = 0,
+        .srcStageMask = .{
+            .color_attachment_output = true,
+        },
+        .srcAccessMask = .{},
+        .dstStageMask = .{
+            .color_attachment_output = true,
+        },
+        .dstAccessMask = .{
+            .color_attachment_write = true,
+        },
     };
 
+    const depth_dependency = l0vk.VkSubpassDependency{
+        .srcSubpass = l0vk.VK_SUBPASS_EXTERNAL,
+        .dstSubpass = 0,
+        .srcStageMask = .{
+            .early_fragment_tests = true,
+            .late_fragment_tests = true,
+        },
+        .srcAccessMask = .{},
+        .dstStageMask = .{
+            .early_fragment_tests = true,
+            .late_fragment_tests = true,
+        },
+        .dstAccessMask = .{
+            .depth_stencil_attachment_write = true,
+        },
+    };
+
+    var dependencies = [2]l0vk.VkSubpassDependency{ undefined, undefined };
+    var pDependencies: []l0vk.VkSubpassDependency = undefined;
+    dependencies[0] = color_dependency;
+    if (with_depth_attachment) {
+        dependencies[1] = depth_dependency;
+        pDependencies = &dependencies;
+    } else {
+        pDependencies = dependencies[0..1];
+    }
+
     const render_pass_info = l0vk.VkRenderPassCreateInfo{
-        .attachments = &attachments,
+        .attachments = pAttachments,
         .subpasses = &[_]l0vk.VkSubpassDescription{subpass},
-        .dependencies = &[_]l0vk.VkSubpassDependency{},
+        .dependencies = pDependencies,
     };
 
     const render_pass = try l0vk.vkCreateRenderPass(
@@ -591,13 +689,19 @@ fn create_render_to_image_framebuffers(
     var framebuffers = try allocator.alloc(l0vk.VkFramebuffer, 1);
     errdefer allocator.free(framebuffers);
 
-    const attachments = [_]l0vk.VkImageView{
-        images[0].color.image_view,
-    };
+    var attachments = [2]l0vk.VkImageView{ undefined, undefined };
+    var pAttachments: []l0vk.VkImageView = undefined;
+    attachments[0] = images[0].color.image_view;
+    if (images.len > 1) {
+        attachments[1] = images[1].depth.image_view;
+        pAttachments = &attachments;
+    } else {
+        pAttachments = attachments[0..1];
+    }
 
     var framebuffer_info = l0vk.VkFramebufferCreateInfo{
         .renderPass = render_pass,
-        .attachments = &attachments,
+        .attachments = pAttachments,
         .width = images[0].color.image.width,
         .height = images[0].color.image.height,
         .layers = 1,
@@ -608,6 +712,8 @@ fn create_render_to_image_framebuffers(
         &framebuffer_info,
         null,
     );
+
+    du.log("l1vk", .info, "created 1 framebuffer with {d} attachments", .{pAttachments.len});
 
     return framebuffers;
 }

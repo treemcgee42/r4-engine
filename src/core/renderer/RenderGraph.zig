@@ -281,6 +281,7 @@ pub fn compile(self: *RenderGraph, renderer: *Renderer) !void {
                     .width = production.width,
                     .height = production.height,
                 },
+                .depth_buffered = rp.depth_test,
                 .name = rp.name,
             };
             vkrp_handle = try renderer.system.create_renderpass(&vkrp_init_info);

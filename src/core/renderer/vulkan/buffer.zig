@@ -557,6 +557,7 @@ pub const DepthImage = struct {
     pub fn init(
         physical_device: vulkan.VkPhysicalDevice,
         device: vulkan.VkDevice,
+        vma_allocator: vma.VmaAllocator,
         width: u32,
         height: u32,
         num_samples: u32,
@@ -564,8 +565,7 @@ pub const DepthImage = struct {
         const depth_format = try find_depth_format(physical_device);
 
         var depth_image = try VulkanImage.init(
-            physical_device,
-            device,
+            vma_allocator,
             width,
             height,
             1,
@@ -576,7 +576,7 @@ pub const DepthImage = struct {
             .{ .device_local_bit = true },
             // vulkan.VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
         );
-        errdefer depth_image.deinit(device);
+        errdefer depth_image.deinit(vma_allocator);
 
         const depth_image_view = try depth_image.create_image_view(device, vulkan.VK_IMAGE_ASPECT_DEPTH_BIT);
 
@@ -586,9 +586,9 @@ pub const DepthImage = struct {
         };
     }
 
-    pub fn deinit(self: DepthImage, device: vulkan.VkDevice) void {
+    pub fn deinit(self: DepthImage, device: vulkan.VkDevice, vma_allocator: vma.VmaAllocator) void {
         vulkan.vkDestroyImageView(device, self.image_view, null);
-        self.image.deinit(device);
+        self.image.deinit(vma_allocator);
     }
 
     pub fn find_depth_format(physical_device: vulkan.VkPhysicalDevice) VulkanError!vulkan.VkFormat {
