@@ -155,7 +155,15 @@ pub fn debug_print_gltf_data(gltf_data: *cgltf.cgltf_data) void {
                 cgltf.cgltf_primitive_type_triangle_strip => "triangle_strip",
                 cgltf.cgltf_primitive_type_triangle_fan => "triangle_fan",
                 cgltf.cgltf_primitive_type_max_enum => "max_enum",
-                else => unreachable,
+                else => {
+                    du.log(
+                        "gltf loader",
+                        .err,
+                        "unknown primitive type, enum value {d} - this mesh will be skipped",
+                        .{primitive.type},
+                    );
+                    continue;
+                },
             };
             print_newline_and_indentation(indentation_level);
             std.debug.print("type: {s},", .{type_});
@@ -181,7 +189,15 @@ pub fn debug_print_gltf_data(gltf_data: *cgltf.cgltf_data) void {
                     cgltf.cgltf_attribute_type_invalid => "invalid",
                     cgltf.cgltf_attribute_type_position => "position",
                     cgltf.cgltf_attribute_type_normal => "normal",
-                    else => unreachable,
+                    else => {
+                        du.log(
+                            "gltf loader",
+                            .err,
+                            "unknown attribute type, enum value {d} - this attribute will be skipped",
+                            .{attribute.type},
+                        );
+                        continue;
+                    },
                 };
                 print_newline_and_indentation(indentation_level);
                 std.debug.print("type: {s},", .{attr_type});

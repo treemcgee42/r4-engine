@@ -1,6 +1,7 @@
 const c_string = @cImport({
     @cInclude("string.h");
 });
+const VulkanSystem = @import("./VulkanSystem.zig");
 const stb_image = @import("../../../c.zig").stb_image;
 const std = @import("std");
 const vulkan = @import("vulkan");
@@ -618,6 +619,7 @@ pub const ColorImage = struct {
     pub fn init(
         physical_device: vulkan.VkPhysicalDevice,
         device: vulkan.VkDevice,
+        vma_allocator: vma.VmaAllocator,
         width: u32,
         height: u32,
         format: vulkan.VkFormat,
@@ -626,8 +628,7 @@ pub const ColorImage = struct {
         usage: vulkan.VkImageUsageFlags,
     ) VulkanError!ColorImage {
         var image = try VulkanImage.init(
-            physical_device,
-            device,
+            vma_allocator,
             width,
             height,
             1,
@@ -637,7 +638,7 @@ pub const ColorImage = struct {
             usage,
             .{ .device_local_bit = true },
         );
-        errdefer image.deinit(device);
+        errdefer image.deinit(vma_allocator);
 
         const image_view = try image.create_image_view(device, vulkan.VK_IMAGE_ASPECT_COLOR_BIT);
 
@@ -650,12 +651,12 @@ pub const ColorImage = struct {
         };
     }
 
-    pub fn deinit(self: ColorImage, device: vulkan.VkDevice) void {
+    pub fn deinit(self: ColorImage, device: vulkan.VkDevice, vma_allocator: vma.VmaAllocator) void {
         if (self.sampler) |sampler| {
             vulkan.vkDestroySampler(device, sampler, null);
         }
         vulkan.vkDestroyImageView(device, self.image_view, null);
-        self.image.deinit(device);
+        self.image.deinit(vma_allocator);
     }
 
     pub fn find_depth_format(physical_device: vulkan.VkPhysicalDevice) VulkanError!vulkan.VkFormat {
@@ -680,7 +681,7 @@ pub const ColorImage = struct {
 
 const VulkanImage = struct {
     image: vulkan.VkImage,
-    image_memory: vulkan.VkDeviceMemory,
+    image_allocation: vma.VmaAllocation,
     width: u32,
     height: u32,
     mip_levels: u32,
@@ -690,8 +691,7 @@ const VulkanImage = struct {
     properties: l0vk.VkMemoryPropertyFlags,
 
     pub fn init(
-        physical_device: vulkan.VkPhysicalDevice,
-        device: vulkan.VkDevice,
+        vma_allocator: vma.VmaAllocator,
         width: u32,
         height: u32,
         mip_levels: u32,
@@ -723,33 +723,21 @@ const VulkanImage = struct {
             .flags = 0,
         };
 
-        var image: vulkan.VkImage = undefined;
-        var result = vulkan.vkCreateImage(device, &image_info, null, &image);
-        if (result != vulkan.VK_SUCCESS) {
-            switch (result) {
-                vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
-                vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
-                else => unreachable,
-            }
-        }
-        errdefer vulkan.vkDestroyImage(device, image, null);
-
-        // --- Allocate and bind memory.
-
-        var mem_requirements: vulkan.VkMemoryRequirements = undefined;
-        vulkan.vkGetImageMemoryRequirements(device, image, &mem_requirements);
-
-        const memory_type_index = try find_memory_type(physical_device, mem_requirements.memoryTypeBits, properties);
-        const alloc_info = vulkan.VkMemoryAllocateInfo{
-            .sType = vulkan.VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-            .allocationSize = mem_requirements.size,
-            .memoryTypeIndex = memory_type_index,
-
-            .pNext = null,
+        const allocation_info = vma.VmaAllocationCreateInfo{
+            .usage = vma.VMA_MEMORY_USAGE_GPU_ONLY,
+            .requiredFlags = @bitCast(properties),
         };
 
-        var image_memory: vulkan.VkDeviceMemory = undefined;
-        result = vulkan.vkAllocateMemory(device, &alloc_info, null, &image_memory);
+        var image: vulkan.VkImage = undefined;
+        var allocation: vma.VmaAllocation = undefined;
+        const result = vma.vmaCreateImage(
+            vma_allocator,
+            @ptrCast(&image_info),
+            &allocation_info,
+            @ptrCast(&image),
+            &allocation,
+            null,
+        );
         if (result != vulkan.VK_SUCCESS) {
             switch (result) {
                 vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
@@ -757,22 +745,13 @@ const VulkanImage = struct {
                 else => unreachable,
             }
         }
-        errdefer vulkan.vkFreeMemory(device, image_memory, null);
-
-        result = vulkan.vkBindImageMemory(device, image, image_memory, 0);
-        if (result != vulkan.VK_SUCCESS) {
-            switch (result) {
-                vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return VulkanError.vk_error_out_of_host_memory,
-                vulkan.VK_ERROR_OUT_OF_DEVICE_MEMORY => return VulkanError.vk_error_out_of_device_memory,
-                else => unreachable,
-            }
-        }
+        errdefer vma.vmaDestroyImage(vma_allocator, image, allocation);
 
         // ---
 
         return .{
             .image = image,
-            .image_memory = image_memory,
+            .image_allocation = allocation,
             .width = width,
             .height = height,
             .mip_levels = mip_levels,
@@ -783,9 +762,8 @@ const VulkanImage = struct {
         };
     }
 
-    pub fn deinit(self: VulkanImage, device: vulkan.VkDevice) void {
-        vulkan.vkDestroyImage(device, self.image, null);
-        vulkan.vkFreeMemory(device, self.image_memory, null);
+    pub fn deinit(self: VulkanImage, vma_allocator: vma.VmaAllocator) void {
+        vma.vmaDestroyImage(vma_allocator, @ptrCast(self.image), self.image_allocation);
     }
 
     pub fn copy_from_buffer(

@@ -75,6 +75,7 @@ pub fn init(info: *const RenderPassInitInfo) !RenderPass {
             const image = try buffer.ColorImage.init(
                 system.physical_device,
                 system.logical_device,
+                system.vma_allocator,
                 info.render_area.width,
                 info.render_area.height,
                 @intFromEnum(info.window.swapchain.swapchain.swapchain_image_format),
@@ -134,7 +135,7 @@ pub fn deinit(self: *RenderPass, allocator: std.mem.Allocator, system: *VulkanSy
 
     i = 0;
     while (i < self.images.len) : (i += 1) {
-        self.images[i].color.deinit(system.logical_device);
+        self.images[i].color.deinit(system.logical_device, system.vma_allocator);
     }
     allocator.free(self.images);
 
@@ -352,7 +353,7 @@ pub fn resize_callback(
     if (self.tag != .basic_primary) {
         i = 0;
         while (i < self.images.len) : (i += 1) {
-            self.images[i].color.deinit(system.logical_device);
+            self.images[i].color.deinit(system.logical_device, system.vma_allocator);
         }
     }
 
@@ -371,6 +372,7 @@ pub fn resize_callback(
                 .color = try buffer.ColorImage.init(
                     system.physical_device,
                     system.logical_device,
+                    system.vma_allocator,
                     new_render_area.width,
                     new_render_area.height,
                     @intFromEnum(swapchain.swapchain_image_format),
