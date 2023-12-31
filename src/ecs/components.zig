@@ -32,12 +32,12 @@ fn ComponentArray(comptime ty: type) type {
         ) !void {
             const component_idx = self.entity_to_idx_map.get(entity);
             if (component_idx != null) {
-                dutil.log(
-                    "ecs",
-                    .warn,
-                    "Component already exists for entity {d}, overriding",
-                    .{entity.id},
-                );
+                // dutil.log(
+                //     "ecs",
+                //     .debug,
+                //     "Component already exists for entity {d}, overriding",
+                //     .{entity.id},
+                // );
                 self.components.items[component_idx.?] = component;
                 return;
             }

@@ -8,12 +8,18 @@ const vulkan = @import("vulkan");
 
 // ---
 
+pub const SceneError = error{
+    object_missing_transform,
+};
+
+// ---
+
 _renderer: *Renderer,
 
 mesh_system: MeshSystem,
 material_system: MaterialSystem,
 
-objects: std.ArrayList(r4_ecs.Entity),
+objects: std.ArrayList(Object),
 objects_ecs: r4_ecs.Ecs,
 camera: Camera,
 
@@ -31,6 +37,7 @@ pub fn init(allocator: std.mem.Allocator, renderer: *Renderer) !Self {
     try ecs.register_component(MeshSystem.Mesh);
     try ecs.register_component(MaterialHandle);
     try ecs.register_component(Transform);
+    try ecs.register_component(Translation);
 
     dutil.log("scene", .info, "scene initialized", .{});
 
@@ -40,7 +47,7 @@ pub fn init(allocator: std.mem.Allocator, renderer: *Renderer) !Self {
         .mesh_system = mesh_system,
         .material_system = material_system,
 
-        .objects = std.ArrayList(r4_ecs.Entity).init(allocator),
+        .objects = std.ArrayList(Object).init(allocator),
         .objects_ecs = ecs,
         .camera = Camera.init(
             math.Vec3f.init(0, 0, -5),
@@ -64,9 +71,15 @@ pub fn deinit_generic(self_: *anyopaque) void {
     allocator.destroy(self);
 }
 
-pub fn create_object(self: *Self) !r4_ecs.Entity {
+pub fn create_object(self: *Self, name: [*c]const u8) !r4_ecs.Entity {
     const entity = self.objects_ecs.create_entity();
-    try self.objects.append(entity);
+    try self.objects.append(.{ .entity = entity, .name = name });
+
+    const default_transform: Transform = math.Mat4f.init_identity();
+    try self.objects_ecs.add_component_for_entity(entity, default_transform);
+    const default_translation: Translation = math.Vec3f.init(0, 0, 0);
+    try self.objects_ecs.add_component_for_entity(entity, default_translation);
+
     return entity;
 }
 
@@ -82,8 +95,32 @@ pub fn assign_material_to_object(
     try self.objects_ecs.add_component_for_entity(object, material);
 }
 
-pub fn assign_transform_to_object(self: *Self, object: r4_ecs.Entity, transform: Transform) !void {
+pub fn update_transform_of_object(
+    self: *Self,
+    object: r4_ecs.Entity,
+    transform: Transform,
+) !void {
     try self.objects_ecs.add_component_for_entity(object, transform);
+}
+
+/// Reconstructs the transform from scratch from the following components, in order:
+/// - Translation
+fn update_entity_transform_from_components(self: *Self, entity: r4_ecs.Entity) !void {
+    var new_transform: Transform = math.Mat4f.init_identity();
+
+    const translation_ptr = self.objects_ecs.get_component_for_entity(entity, Translation);
+    new_transform.apply_translation(translation_ptr.?);
+
+    try self.objects_ecs.add_component_for_entity(entity, new_transform);
+}
+
+pub fn update_translation_of_object(
+    self: *Self,
+    object: r4_ecs.Entity,
+    translation: Translation,
+) !void {
+    try self.objects_ecs.add_component_for_entity(object, translation);
+    try self.update_entity_transform_from_components(object);
 }
 
 pub fn draw(self: *Self) !void {
@@ -93,7 +130,7 @@ pub fn draw(self: *Self) !void {
 
     var i: usize = 0;
     while (i < self.objects.items.len) : (i += 1) {
-        const object = self.objects.items[i];
+        const object = self.objects.items[i].entity;
 
         const mesh = self.objects_ecs.get_component_for_entity(object, MeshSystem.Mesh) orelse {
             dutil.log(
@@ -243,9 +280,11 @@ pub const MaterialSystem = struct {
 // ---
 
 pub const Transform = math.Mat4f;
+pub const Translation = math.Vec3f;
+
+// ---
 
 pub const Object = struct {
-    mesh: MeshSystem.Mesh,
-    material: MaterialHandle,
-    transform_matrix: math.Mat4f,
+    entity: r4_ecs.Entity,
+    name: [*c]const u8,
 };

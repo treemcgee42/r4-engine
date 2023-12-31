@@ -149,20 +149,16 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
         .color = math.Vec3f.init(0, 0, 1),
     } };
     const tri_mesh = try scene.mesh_system.register("triangle", &tri_verts);
-    var tri_translation = math.Vec3f.init(0, 1, 0);
-    const tri_scene_obj = try scene.create_object();
+    const tri_scene_obj = try scene.create_object("triangle");
     try scene.assign_mesh_to_object(tri_scene_obj, tri_mesh);
     try scene.assign_material_to_object(tri_scene_obj, material_handle);
-    try scene.assign_transform_to_object(tri_scene_obj, math.Mat4f.init_translate(&tri_translation));
 
     const cube_verts = try gltf_loader.load_from_file(&core.allocator, "models/Box.glb");
     defer core.allocator.free(cube_verts);
     const cube_mesh = try scene.mesh_system.register("cube", cube_verts);
-    var cube_translation = math.Vec3f.init(0, 1, 2);
-    const cube_scene_obj = try scene.create_object();
+    const cube_scene_obj = try scene.create_object("cube");
     try scene.assign_mesh_to_object(cube_scene_obj, cube_mesh);
     try scene.assign_material_to_object(cube_scene_obj, material_handle);
-    try scene.assign_transform_to_object(cube_scene_obj, math.Mat4f.init_translate(&cube_translation));
 
     // const duck_verts = try gltf_loader.load_from_file(&core.allocator, "models/Duck.glb");
     // defer core.allocator.free(duck_verts);
@@ -216,6 +212,7 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
     var left_panel_open = true;
     var right_panel_open = true;
     var background_color: [3]f32 = .{ 0.1, 0.1, 0.1 };
+    var selected_scene_object_idx: ?usize = null;
 
     while (glfw.glfwWindowShouldClose(self.window) == 0) {
         glfw.glfwPollEvents();
@@ -228,26 +225,81 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
 
         {
             _ = cimgui.igBegin("Left panel", &left_panel_open, 0);
+
+            var i: usize = 0;
+            while (i < scene.objects.items.len) : (i += 1) {
+                const object = scene.objects.items[i];
+                if (cimgui.igSelectable_Bool(
+                    object.name,
+                    selected_scene_object_idx == i,
+                    0,
+                    cimgui.ImVec2{ .x = 0, .y = 0 },
+                )) {
+                    if (selected_scene_object_idx == i) {
+                        // If already selected, deselect.
+                        selected_scene_object_idx = null;
+                    } else {
+                        selected_scene_object_idx = i;
+                        std.log.debug("selected object: {s}", .{object.name});
+                    }
+                }
+            }
+
             cimgui.igEnd();
         }
 
         {
             _ = cimgui.igBegin("Bottom panel", &right_panel_open, 0);
 
-            // Scene settings.
-            cimgui.igText("Scene settings");
-            // Background color
-            _ = cimgui.igColorEdit3("Background color", &background_color, 0);
-            core.renderer.set_renderpass_clear_color(
-                scene_pass,
-                .{
-                    background_color[0],
-                    background_color[1],
-                    background_color[2],
-                    1.0,
-                },
-            );
-            // Vert 1 color
+            if (selected_scene_object_idx == null) {
+                // Scene settings.
+                cimgui.igText("Scene settings");
+                // Background color
+                _ = cimgui.igColorEdit3("Background color", &background_color, 0);
+                core.renderer.set_renderpass_clear_color(
+                    scene_pass,
+                    .{
+                        background_color[0],
+                        background_color[1],
+                        background_color[2],
+                        1.0,
+                    },
+                );
+            } else {
+                // Object settings.
+                const object = scene.objects.items[selected_scene_object_idx.?];
+                cimgui.igText(object.name);
+                // Translation
+                const object_translation_ptr = scene.objects_ecs.get_component_for_entity(
+                    object.entity,
+                    Scene.Translation,
+                ).?;
+                var editable_translation = [3]f32{
+                    object_translation_ptr.raw[0],
+                    object_translation_ptr.raw[1],
+                    object_translation_ptr.raw[2],
+                };
+                _ = cimgui.igDragFloat3(
+                    "Translation",
+                    &editable_translation,
+                    0.1,
+                    0,
+                    0,
+                    "%.2f",
+                    0,
+                );
+                if (editable_translation[0] != object_translation_ptr.raw[0] or
+                    editable_translation[1] != object_translation_ptr.raw[1] or
+                    editable_translation[2] != object_translation_ptr.raw[2])
+                {
+                    const new_translation: Scene.Translation = math.Vec3f.init(
+                        editable_translation[0],
+                        editable_translation[1],
+                        editable_translation[2],
+                    );
+                    try scene.update_translation_of_object(object.entity, new_translation);
+                }
+            }
 
             cimgui.igEnd();
         }

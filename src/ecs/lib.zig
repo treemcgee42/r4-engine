@@ -48,7 +48,8 @@ pub const Ecs = struct {
         return self.component_manager.register_component(component_ty);
     }
 
-    /// Adds a component to an entity. The component must be registered.
+    /// Adds a component to an entity. The component must be registered. If the
+    /// entity already has a component of the same type, it will be overwritten.
     ///
     /// Returns:
     /// - `void` on success
@@ -71,6 +72,7 @@ pub const Ecs = struct {
         return self.component_manager.remove_component_for_entity(entity, component_ty);
     }
 
+    /// Returns `null` if the component is not assigned to the entity.
     pub fn get_component_for_entity(
         self: *Ecs,
         entity: Entity,

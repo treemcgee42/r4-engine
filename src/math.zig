@@ -97,6 +97,12 @@ pub const Mat4f = extern struct {
         cglm.glmc_rotate(self.raw[0..].ptr, angle, axis.raw[0..].ptr);
     }
 
+    pub fn apply_translation(self: *Mat4f, translation: *const Vec3f) void {
+        // TODO: shouldn't need to do this.
+        var translation_copy: Vec3f = translation.*;
+        cglm.glmc_translate(self.raw[0..].ptr, translation_copy.raw[0..].ptr);
+    }
+
     comptime {
         std.debug.assert(@sizeOf(Mat4f) == @sizeOf(cglm.mat4));
         std.debug.assert(@alignOf(Mat4f) == @alignOf(cglm.mat4));
