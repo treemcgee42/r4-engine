@@ -116,7 +116,7 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
         .name = "Hello Triangle",
         .vertex_shader_filename = "shaders/compiled_output/tri_mesh.vert.spv",
         .fragment_shader_filename = "shaders/compiled_output/tri_mesh.frag.spv",
-        .front_face_orientation = .clockwise,
+        .front_face_orientation = .counter_clockwise,
         .topology = .triangle_list,
         .depth_test_enabled = true,
         .render_pass = scene_pass,

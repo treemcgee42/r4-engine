@@ -190,6 +190,7 @@ pub fn draw(self: *Self) !void {
 
         var view_matrix = self.camera.view_matrix;
         var projection_matrix = self.camera.projection_matrix;
+        projection_matrix.raw[1][1] *= -1;
         var transform_matrix = transform.val;
         var rotate_axis = math.Vec3f.init(0, 1, 0);
         transform_matrix.apply_rotation(@as(f32, @floatFromInt(self.frame_number)) * 0.01, &rotate_axis);
