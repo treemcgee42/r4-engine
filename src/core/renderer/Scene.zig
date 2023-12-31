@@ -38,6 +38,7 @@ pub fn init(allocator: std.mem.Allocator, renderer: *Renderer) !Self {
     try ecs.register_component(MaterialHandle);
     try ecs.register_component(Transform);
     try ecs.register_component(Translation);
+    try ecs.register_component(Scale);
 
     dutil.log("scene", .info, "scene initialized", .{});
 
@@ -75,10 +76,18 @@ pub fn create_object(self: *Self, name: [*c]const u8) !r4_ecs.Entity {
     const entity = self.objects_ecs.create_entity();
     try self.objects.append(.{ .entity = entity, .name = name });
 
-    const default_transform: Transform = math.Mat4f.init_identity();
+    const default_transform = Transform{
+        .val = math.Mat4f.init_identity(),
+    };
     try self.objects_ecs.add_component_for_entity(entity, default_transform);
-    const default_translation: Translation = math.Vec3f.init(0, 0, 0);
+    const default_translation = Translation{
+        .val = math.Vec3f.init(0, 0, 0),
+    };
     try self.objects_ecs.add_component_for_entity(entity, default_translation);
+    const default_scale = Scale{
+        .val = math.Vec3f.init(1, 1, 1),
+    };
+    try self.objects_ecs.add_component_for_entity(entity, default_scale);
 
     return entity;
 }
@@ -105,13 +114,18 @@ pub fn update_transform_of_object(
 
 /// Reconstructs the transform from scratch from the following components, in order:
 /// - Translation
+/// (- Rotation, when added)
+/// - Scale
 fn update_entity_transform_from_components(self: *Self, entity: r4_ecs.Entity) !void {
-    var new_transform: Transform = math.Mat4f.init_identity();
+    var new_transform_val = math.Mat4f.init_identity();
 
     const translation_ptr = self.objects_ecs.get_component_for_entity(entity, Translation);
-    new_transform.apply_translation(translation_ptr.?);
+    new_transform_val.apply_translation(&translation_ptr.?.val);
 
-    try self.objects_ecs.add_component_for_entity(entity, new_transform);
+    const scale_ptr = self.objects_ecs.get_component_for_entity(entity, Scale);
+    new_transform_val.apply_scale(&scale_ptr.?.val);
+
+    try self.objects_ecs.add_component_for_entity(entity, Transform{ .val = new_transform_val });
 }
 
 pub fn update_translation_of_object(
@@ -120,6 +134,15 @@ pub fn update_translation_of_object(
     translation: Translation,
 ) !void {
     try self.objects_ecs.add_component_for_entity(object, translation);
+    try self.update_entity_transform_from_components(object);
+}
+
+pub fn update_scale_of_object(
+    self: *Self,
+    object: r4_ecs.Entity,
+    scale: Scale,
+) !void {
+    try self.objects_ecs.add_component_for_entity(object, scale);
     try self.update_entity_transform_from_components(object);
 }
 
@@ -167,7 +190,7 @@ pub fn draw(self: *Self) !void {
 
         var view_matrix = self.camera.view_matrix;
         var projection_matrix = self.camera.projection_matrix;
-        var transform_matrix = transform.*;
+        var transform_matrix = transform.val;
         var rotate_axis = math.Vec3f.init(0, 1, 0);
         transform_matrix.apply_rotation(@as(f32, @floatFromInt(self.frame_number)) * 0.01, &rotate_axis);
         var intermediate = math.mat4f_times_mat4f(&view_matrix, &transform_matrix);
@@ -279,8 +302,15 @@ pub const MaterialSystem = struct {
 
 // ---
 
-pub const Transform = math.Mat4f;
-pub const Translation = math.Vec3f;
+pub const Transform = struct {
+    val: math.Mat4f,
+};
+pub const Translation = struct {
+    val: math.Vec3f,
+};
+pub const Scale = struct {
+    val: math.Vec3f,
+};
 
 // ---
 

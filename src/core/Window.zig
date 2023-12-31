@@ -160,14 +160,12 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
     try scene.assign_mesh_to_object(cube_scene_obj, cube_mesh);
     try scene.assign_material_to_object(cube_scene_obj, material_handle);
 
-    // const duck_verts = try gltf_loader.load_from_file(&core.allocator, "models/Duck.glb");
-    // defer core.allocator.free(duck_verts);
-    // const duck_mesh = try scene.mesh_system.register("duck", duck_verts);
-    // var duck_translation = math.Vec3f.init(0, 0, 100);
-    // const duck_scene_obj = try scene.create_object();
-    // try scene.assign_mesh_to_object(duck_scene_obj, duck_mesh);
-    // try scene.assign_material_to_object(duck_scene_obj, material_handle);
-    // try scene.assign_transform_to_object(duck_scene_obj, math.Mat4f.init_translate(&duck_translation));
+    const duck_verts = try gltf_loader.load_from_file(&core.allocator, "models/Duck.glb");
+    defer core.allocator.free(duck_verts);
+    const duck_mesh = try scene.mesh_system.register("duck", duck_verts);
+    const duck_scene_obj = try scene.create_object("duck");
+    try scene.assign_mesh_to_object(duck_scene_obj, duck_mesh);
+    try scene.assign_material_to_object(duck_scene_obj, material_handle);
 
     // --- Main pass.
     const main_pass_render_target = try core.renderer.resource_system.create_resource(.{
@@ -240,7 +238,6 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
                         selected_scene_object_idx = null;
                     } else {
                         selected_scene_object_idx = i;
-                        std.log.debug("selected object: {s}", .{object.name});
                     }
                 }
             }
@@ -269,15 +266,16 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
                 // Object settings.
                 const object = scene.objects.items[selected_scene_object_idx.?];
                 cimgui.igText(object.name);
+
                 // Translation
                 const object_translation_ptr = scene.objects_ecs.get_component_for_entity(
                     object.entity,
                     Scene.Translation,
                 ).?;
                 var editable_translation = [3]f32{
-                    object_translation_ptr.raw[0],
-                    object_translation_ptr.raw[1],
-                    object_translation_ptr.raw[2],
+                    object_translation_ptr.val.raw[0],
+                    object_translation_ptr.val.raw[1],
+                    object_translation_ptr.val.raw[2],
                 };
                 _ = cimgui.igDragFloat3(
                     "Translation",
@@ -288,16 +286,51 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
                     "%.2f",
                     0,
                 );
-                if (editable_translation[0] != object_translation_ptr.raw[0] or
-                    editable_translation[1] != object_translation_ptr.raw[1] or
-                    editable_translation[2] != object_translation_ptr.raw[2])
+                if (editable_translation[0] != object_translation_ptr.val.raw[0] or
+                    editable_translation[1] != object_translation_ptr.val.raw[1] or
+                    editable_translation[2] != object_translation_ptr.val.raw[2])
                 {
-                    const new_translation: Scene.Translation = math.Vec3f.init(
-                        editable_translation[0],
-                        editable_translation[1],
-                        editable_translation[2],
-                    );
+                    const new_translation = Scene.Translation{
+                        .val = math.Vec3f.init(
+                            editable_translation[0],
+                            editable_translation[1],
+                            editable_translation[2],
+                        ),
+                    };
                     try scene.update_translation_of_object(object.entity, new_translation);
+                }
+
+                // Scale
+                const object_scale_ptr = scene.objects_ecs.get_component_for_entity(
+                    object.entity,
+                    Scene.Scale,
+                ).?;
+                var editable_scale = [3]f32{
+                    object_scale_ptr.val.raw[0],
+                    object_scale_ptr.val.raw[1],
+                    object_scale_ptr.val.raw[2],
+                };
+                _ = cimgui.igDragFloat3(
+                    "Scale",
+                    &editable_scale,
+                    0.1,
+                    0,
+                    0,
+                    "%.2f",
+                    0,
+                );
+                if (editable_scale[0] != object_scale_ptr.val.raw[0] or
+                    editable_scale[1] != object_scale_ptr.val.raw[1] or
+                    editable_scale[2] != object_scale_ptr.val.raw[2])
+                {
+                    const new_scale = Scene.Scale{
+                        .val = math.Vec3f.init(
+                            editable_scale[0],
+                            editable_scale[1],
+                            editable_scale[2],
+                        ),
+                    };
+                    try scene.update_scale_of_object(object.entity, new_scale);
                 }
             }
 

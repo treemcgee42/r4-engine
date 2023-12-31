@@ -103,6 +103,12 @@ pub const Mat4f = extern struct {
         cglm.glmc_translate(self.raw[0..].ptr, translation_copy.raw[0..].ptr);
     }
 
+    pub fn apply_scale(self: *Mat4f, scale: *const Vec3f) void {
+        // TODO: shouldn't need to do this.
+        var scale_copy: Vec3f = scale.*;
+        cglm.glmc_scale(self.raw[0..].ptr, scale_copy.raw[0..].ptr);
+    }
+
     comptime {
         std.debug.assert(@sizeOf(Mat4f) == @sizeOf(cglm.mat4));
         std.debug.assert(@alignOf(Mat4f) == @alignOf(cglm.mat4));

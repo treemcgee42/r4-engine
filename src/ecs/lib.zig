@@ -41,6 +41,25 @@ pub const Ecs = struct {
     // }
 
     /// Registering a component allows one to assign an instance of the component to an entity.
+    ///
+    /// WARNING: simple type aliases are not considered distinct types! For example, trying
+    /// to register components for the types
+    /// ```
+    /// const component_1 = f32;
+    /// const componnent_2 = f32;
+    /// ```
+    /// will not work as expected, since `component_1` and `component_2` are the same type.
+    /// There is some discussion on allowing this to define distinct types, see
+    /// [this](https://github.com/ziglang/zig/issues/1595).
+    /// In the meantime, a workaround is to use a struct type instead of a simple type alias:
+    /// ```
+    /// const component_1 = struct {
+    ///   value: f32,
+    /// };
+    /// const component_2 = struct {
+    ///   value: f32,
+    /// };
+    /// ```
     pub fn register_component(
         self: *Ecs,
         comptime component_ty: type,

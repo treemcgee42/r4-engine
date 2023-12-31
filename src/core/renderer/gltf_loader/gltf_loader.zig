@@ -262,12 +262,16 @@ fn parse_primitive_verts_type_triangles(
     }
 
     var position_accessor: ?*cgltf.cgltf_accessor = null;
+    var normal_accessor: ?*cgltf.cgltf_accessor = null;
     i = 0;
     while (i < primitive.attributes_count) : (i += 1) {
         const attribute = primitive.attributes[i];
         switch (attribute.type) {
             cgltf.cgltf_attribute_type_position => {
-                position_accessor = attribute.data; // &gltf_data.accessors[@intCast(attribute.index)];
+                position_accessor = attribute.data;
+            },
+            cgltf.cgltf_attribute_type_normal => {
+                normal_accessor = attribute.data;
             },
             else => {
                 du.log(
@@ -290,10 +294,9 @@ fn parse_primitive_verts_type_triangles(
         i = 0;
         while (i < indices_accessor.?.count) : (i += 1) {
             const idx_0 = cgltf.cgltf_accessor_read_index(indices_accessor, i);
-            // std.debug.print("{d}: ", .{index});
 
-            var pos: [3]cgltf.cgltf_float = [_]cgltf.cgltf_float{ -69.0, -69.0, -69.0 };
-            const res = cgltf.cgltf_accessor_read_float(
+            var pos: [3]cgltf.cgltf_float = [_]cgltf.cgltf_float{ undefined, undefined, undefined };
+            var res = cgltf.cgltf_accessor_read_float(
                 position_accessor,
                 idx_0,
                 &pos,
@@ -303,10 +306,29 @@ fn parse_primitive_verts_type_triangles(
                 std.log.err("{s}\tfailed to read position\n", .{@src().fn_name});
             }
 
+            var normal: [3]cgltf.cgltf_float = [_]cgltf.cgltf_float{
+                undefined,
+                undefined,
+                undefined,
+            };
+            res = cgltf.cgltf_accessor_read_float(
+                normal_accessor,
+                idx_0,
+                &normal,
+                3,
+            );
+
+            // We want to view the normals as a color, so we need to convert them to RGB.
+            const normal_color = math.Vec3f.init(
+                (normal[0] + 1.0) / 2.0,
+                (normal[1] + 1.0) / 2.0,
+                (normal[2] + 1.0) / 2.0,
+            );
+
             vertices[i] = Vertex{
                 .position = math.Vec3f.init(pos[0], pos[1], pos[2]),
-                .normal = math.Vec3f.init(0.0, 0.0, 1.0), // undefined
-                .color = math.Vec3f.init(0.1, 0.7, 0.7),
+                .normal = math.Vec3f.init(normal[0], normal[1], normal[2]),
+                .color = normal_color, // for testing
             };
         }
     }
