@@ -1,3 +1,4 @@
+const dutil = @import("debug_utils");
 const c_string = @cImport({
     @cInclude("string.h");
 });
@@ -679,7 +680,7 @@ pub const ColorImage = struct {
     }
 };
 
-const VulkanImage = struct {
+pub const VulkanImage = struct {
     image: vulkan.VkImage,
     image_allocation: vma.VmaAllocation,
     width: u32,
@@ -689,6 +690,7 @@ const VulkanImage = struct {
     tiling: vulkan.VkImageTiling,
     usage: vulkan.VkImageUsageFlags,
     properties: l0vk.VkMemoryPropertyFlags,
+    current_layout: vulkan.VkImageLayout,
 
     pub fn init(
         vma_allocator: vma.VmaAllocator,
@@ -759,6 +761,7 @@ const VulkanImage = struct {
             .tiling = tiling,
             .usage = usage,
             .properties = properties,
+            .current_layout = vulkan.VK_IMAGE_LAYOUT_UNDEFINED,
         };
     }
 
@@ -1011,21 +1014,27 @@ const VulkanImage = struct {
     //     endSingleTimeCommands(commandBuffer);
     // }
 
-    fn transition_image_layout(
+    pub fn transition_image_layout(
         self: *VulkanImage,
-        device: vulkan.VkDevice,
-        command_pool: vulkan.VkCommandPool,
-        graphics_queue: vulkan.VkQueue,
-        format: vulkan.VkFormat,
+        command_buffer: vulkan.VkCommandBuffer,
         old_layout: vulkan.VkImageLayout,
         new_layout: vulkan.VkImageLayout,
     ) VulkanError!void {
-        _ = format;
-        const command_buffer = try begin_single_time_commands(device, command_pool);
+        if (self.current_layout != old_layout) {
+            const old: l0vk.VkImageLayout = @enumFromInt(old_layout);
+            const new: l0vk.VkImageLayout = @enumFromInt(new_layout);
+            const current: l0vk.VkImageLayout = @enumFromInt(self.current_layout);
+            dutil.log(
+                "l1vk",
+                .warn,
+                "trying to transition image layout from {s} to {s} but image currently has layout {s}... will try to transition from {s} to {s} instead",
+                .{ @tagName(old), @tagName(new), @tagName(current), @tagName(current), @tagName(new) },
+            );
+        }
 
         var barrier = vulkan.VkImageMemoryBarrier{
             .sType = vulkan.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-            .oldLayout = old_layout,
+            .oldLayout = self.current_layout,
             .newLayout = new_layout,
             .srcQueueFamilyIndex = vulkan.VK_QUEUE_FAMILY_IGNORED,
             .dstQueueFamilyIndex = vulkan.VK_QUEUE_FAMILY_IGNORED,
@@ -1048,20 +1057,48 @@ const VulkanImage = struct {
         var source_stage: vulkan.VkPipelineStageFlags = undefined;
         var destination_stage: vulkan.VkPipelineStageFlags = undefined;
 
-        if ((old_layout == vulkan.VK_IMAGE_LAYOUT_UNDEFINED) and (new_layout == vulkan.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)) {
+        if ((self.current_layout == vulkan.VK_IMAGE_LAYOUT_UNDEFINED) and
+            (new_layout == vulkan.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL))
+        {
             barrier.srcAccessMask = 0;
             barrier.dstAccessMask = vulkan.VK_ACCESS_TRANSFER_WRITE_BIT;
 
             source_stage = vulkan.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
             destination_stage = vulkan.VK_PIPELINE_STAGE_TRANSFER_BIT;
-        } else if (old_layout == vulkan.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL and new_layout == vulkan.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+        } else if ((self.current_layout == vulkan.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) and
+            (new_layout == vulkan.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL))
+        {
             barrier.srcAccessMask = vulkan.VK_ACCESS_TRANSFER_WRITE_BIT;
             barrier.dstAccessMask = vulkan.VK_ACCESS_SHADER_READ_BIT;
 
             source_stage = vulkan.VK_PIPELINE_STAGE_TRANSFER_BIT;
             destination_stage = vulkan.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        } else if ((self.current_layout == vulkan.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) and
+            (new_layout == vulkan.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL))
+        {
+            barrier.srcAccessMask = vulkan.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+            barrier.dstAccessMask = vulkan.VK_ACCESS_SHADER_READ_BIT;
+
+            source_stage = vulkan.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            destination_stage = vulkan.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        } else if ((self.current_layout == vulkan.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) and
+            (new_layout == vulkan.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL))
+        {
+            barrier.srcAccessMask = vulkan.VK_ACCESS_SHADER_READ_BIT;
+            barrier.dstAccessMask = vulkan.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+            source_stage = vulkan.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+            destination_stage = vulkan.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        } else if ((self.current_layout == vulkan.VK_IMAGE_LAYOUT_UNDEFINED) and
+            (new_layout == vulkan.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL))
+        {
+            barrier.srcAccessMask = 0;
+            barrier.dstAccessMask = vulkan.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+            source_stage = vulkan.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            destination_stage = vulkan.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
         } else {
-            return VulkanError.unsupported_layout_transition;
+            @panic("unsupported layout transition");
         }
 
         vulkan.vkCmdPipelineBarrier(
@@ -1077,7 +1114,7 @@ const VulkanImage = struct {
             &barrier,
         );
 
-        try end_single_time_commands(device, command_pool, graphics_queue, command_buffer);
+        self.current_layout = new_layout;
     }
 };
 

@@ -53,7 +53,7 @@ pub const PipelineSystem = struct {
         self: *PipelineSystem,
         renderer: *Renderer,
         virtual_pipeline: *const VirtualPipeline,
-        renderpass: l0vk.VkRenderPass,
+        renderpass: *const VulkanSystem.Renderpass,
     ) !PipelineAndLayout {
         // --- Try to find in cache.
 
@@ -84,7 +84,7 @@ const PipelineAndLayout = struct {
 pub fn build_pipeline(
     renderer: *Renderer,
     virtual_pipeline: *const VirtualPipeline,
-    renderpass: l0vk.VkRenderPass,
+    renderpass: *const VulkanSystem.Renderpass,
 ) !PipelineAndLayout {
     const allocator = renderer.allocator;
     const system = renderer.system;
@@ -255,8 +255,33 @@ pub fn build_pipeline(
 
     // -- Pipeline.
 
+    var pipeline_rendering_create_info: l0vk.VkPipelineRenderingCreateInfo = undefined;
+    var pipeline_pNext: ?*const l0vk.VkPipelineRenderingCreateInfo = undefined;
+    var pipeline_renderpass: l0vk.VkRenderPass = undefined;
+    var color_attachment_formats = [1]l0vk.VkFormat{undefined};
+    var depth_attachment_format: l0vk.VkFormat = undefined;
+    switch (renderpass.*) {
+        .dynamic => {
+            color_attachment_formats[0] = renderpass.dynamic.attachments.getPtr("color").?.format;
+            depth_attachment_format = if (renderpass.dynamic.attachments.getPtr("depth")) |depth| depth.format else .undefined;
+            pipeline_rendering_create_info = l0vk.VkPipelineRenderingCreateInfo{
+                .colorAttachmentCount = 1,
+                .pColorAttachmentFormats = &color_attachment_formats,
+                .depthAttachmentFormat = depth_attachment_format,
+                .stencilAttachmentFormat = .undefined,
+            };
+
+            pipeline_pNext = &pipeline_rendering_create_info;
+            pipeline_renderpass = null;
+        },
+        .static => {
+            pipeline_pNext = null;
+            pipeline_renderpass = renderpass.static.render_pass;
+        },
+    }
+
     const pipeline_info = l0vk.VkGraphicsPipelineCreateInfo{
-        .pNext = null,
+        .pNext = pipeline_pNext,
         .flags = .{},
         .stages = &shader_stages,
 
@@ -271,7 +296,7 @@ pub fn build_pipeline(
         .pDynamicState = &dynamic_state,
 
         .layout = pipeline_layout,
-        .renderPass = renderpass,
+        .renderPass = pipeline_renderpass,
         .subpass = 0,
         .basePipelineHandle = @ptrCast(l0vk.VK_NULL_HANDLE),
         .basePipelineIndex = -1,

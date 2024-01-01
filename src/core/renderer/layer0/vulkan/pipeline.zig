@@ -982,7 +982,7 @@ pub const VkPipelineDepthStencilStateCreateInfo = struct {
 };
 
 pub const VkGraphicsPipelineCreateInfo = struct {
-    pNext: ?*const anyopaque = null,
+    pNext: ?*const l0vk.VkPipelineRenderingCreateInfo = null,
     flags: VkPipelineCreateFlags = .{},
     stages: []const VkPipelineShaderStageCreateInfo,
 
@@ -1103,9 +1103,18 @@ pub const VkGraphicsPipelineCreateInfo = struct {
             p_dynamic_state.?.* = self.pDynamicState.?.to_vulkan_ty(allocator);
         }
 
+        var pNext: ?*anyopaque = null;
+        if (self.pNext != null) {
+            const pNext_typed = allocator.create(vulkan.VkPipelineRenderingCreateInfoKHR) catch {
+                @panic("l0vk ran out of memory");
+            };
+            pNext_typed.* = self.pNext.?.to_vulkan_ty(allocator);
+            pNext = @ptrCast(pNext_typed);
+        }
+
         return .{
             .sType = vulkan.VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-            .pNext = self.pNext,
+            .pNext = pNext,
             .flags = @bitCast(self.flags),
             .stageCount = @intCast(shader_stages.len),
             .pStages = shader_stages.ptr,

@@ -4,7 +4,9 @@ const CommandBuffer = @import("CommandBuffer.zig");
 const Resource = Renderer.Resource;
 const VirtualRenderPass = @import("RenderPass.zig");
 const VirtualRenderPassHandle = Renderer.RenderPassHandle;
-const VulkanRenderPassHandle = @import("vulkan/VulkanSystem.zig").RenderPassHandle;
+const VulkanSystem = @import("vulkan/VulkanSystem.zig");
+const VulkanImage = VulkanSystem.VulkanImage;
+const vulkan = @import("vulkan");
 
 const RenderGraph = @This();
 
@@ -19,7 +21,7 @@ execute_steps: std.ArrayList(ExecuteStep),
 /// since virtual pipelines are defined relative to a virtual renderpass.
 ///
 /// Populated during grpah compilation.
-rp_handle_to_real_rp: std.AutoHashMap(VirtualRenderPassHandle, VulkanRenderPassHandle),
+rp_handle_to_real_rp: std.AutoHashMap(VirtualRenderPassHandle, VulkanSystem.RenderpassHandle),
 
 semaphore_to_use: enum { a, b },
 
@@ -46,12 +48,22 @@ pub const Node = struct {
     }
 };
 
+const ImageTransition = struct {
+    image: *VulkanImage,
+    old_layout: vulkan.VkImageLayout,
+    new_layout: vulkan.VkImageLayout,
+};
+
 const ExecuteStep = struct {
-    renderpass: VulkanRenderPassHandle,
+    renderpass: VulkanSystem.RenderpassHandle,
     nodes: []usize,
+    pre_image_transitions: std.ArrayList(ImageTransition),
+    image_transitions: std.ArrayList(ImageTransition),
 
     fn deinit(self: *ExecuteStep, allocator: std.mem.Allocator) void {
         allocator.free(self.nodes);
+        self.image_transitions.deinit();
+        self.pre_image_transitions.deinit();
     }
 };
 
@@ -232,7 +244,10 @@ pub fn init(renderer: *Renderer, command_buffer: *const CommandBuffer) !RenderGr
         .ui_node = ui_node,
 
         .execute_steps = std.ArrayList(ExecuteStep).init(renderer.allocator),
-        .rp_handle_to_real_rp = std.AutoHashMap(VirtualRenderPassHandle, VulkanRenderPassHandle).init(renderer.allocator),
+        .rp_handle_to_real_rp = std.AutoHashMap(
+            VirtualRenderPassHandle,
+            VulkanSystem.RenderpassHandle,
+        ).init(renderer.allocator),
 
         .semaphore_to_use = .a,
     };
@@ -259,33 +274,106 @@ pub fn deinit(self: *RenderGraph, renderer: *Renderer) void {
 /// This is where we actually construct the API renderpasses and synchronization
 /// mechanisms.
 pub fn compile(self: *RenderGraph, renderer: *Renderer) !void {
+    const InitialFinalLayouts = struct {
+        initial: vulkan.VkImageLayout,
+        final: vulkan.VkImageLayout,
+    };
+    var initial_final_layouts = std.AutoHashMap(*VulkanSystem.VulkanImage, InitialFinalLayouts).init(
+        renderer.allocator,
+    );
+    defer initial_final_layouts.deinit();
+
     var i = self.root_node;
     while (true) {
         const node = &self.nodes.items[i];
 
-        // ---
+        // --- Create renderpasses.
 
-        var vkrp_handle: VulkanRenderPassHandle = undefined;
+        var vkrp_handle: VulkanSystem.RenderpassHandle = undefined;
         if (self.ui_node != null and self.ui_node.? == i) {
             vkrp_handle = renderer.ui.?.vulkan_renderpass_handle;
         } else {
             const rp = renderer.get_renderpass_from_handle(node.render_pass);
             const production = renderer.resource_system.get_resource_from_handle(rp.produces.items[0]);
-            const vkrp_init_info = .{
-                .system = &renderer.system,
-                .window = renderer.current_frame_context.?.window,
 
-                .imgui_enabled = rp.enable_imgui,
-                .tag = rp.tag,
-                .render_area = .{
-                    .width = production.width,
-                    .height = production.height,
-                },
-                .depth_buffered = rp.depth_test,
-                .name = rp.name,
-            };
-            vkrp_handle = try renderer.system.create_renderpass(&vkrp_init_info);
-            try self.rp_handle_to_real_rp.put(node.render_pass, vkrp_handle);
+            // This is a good place to make a determination on whether the renderpass should be
+            // static or dynamic.
+
+            const dynamic = if (rp.tag == .render_to_image) true else false;
+            if (dynamic) {
+                const create_info = VulkanSystem.DynamicRenderpassCreateInfo{
+                    .system = &renderer.system,
+                    .window = renderer.current_frame_context.?.window,
+
+                    .imgui_enabled = rp.enable_imgui,
+                    .tag = rp.tag,
+                    .render_area = .{
+                        .width = production.width,
+                        .height = production.height,
+                    },
+                    .depth_buffered = rp.depth_test,
+                    .name = rp.name,
+                };
+                vkrp_handle = try renderer.system.create_dynamic_renderpass(&create_info);
+                try self.rp_handle_to_real_rp.put(node.render_pass, vkrp_handle);
+            } else {
+                const create_info = VulkanSystem.StaticRenderpassCreateInfo{
+                    .system = &renderer.system,
+                    .window = renderer.current_frame_context.?.window,
+
+                    .imgui_enabled = rp.enable_imgui,
+                    .tag = rp.tag,
+                    .render_area = .{
+                        .width = production.width,
+                        .height = production.height,
+                    },
+                    .depth_buffered = rp.depth_test,
+                    .name = rp.name,
+                };
+                vkrp_handle = try renderer.system.create_static_renderpass(&create_info);
+                try self.rp_handle_to_real_rp.put(node.render_pass, vkrp_handle);
+            }
+        }
+
+        // --- Specify image layout transitions.
+
+        var image_transitions = std.ArrayList(ImageTransition).init(renderer.allocator);
+
+        const node_productions = renderer.get_renderpass_from_handle(node.render_pass).produces;
+        var j: usize = 0;
+        while (j < node_productions.items.len) : (j += 1) {
+            const production = renderer.resource_system.get_resource_from_handle(node_productions.items[j]);
+            if (production.kind == .color_texture) {
+                // For each child that depends on it...
+                for (node.children.items) |child| {
+                    const child_node_ptr = &self.nodes.items[child];
+                    const child_dependencies = renderer.get_renderpass_from_handle(
+                        child_node_ptr.render_pass,
+                    ).depends_on;
+                    for (child_dependencies.items) |dep| {
+                        if (renderer.resource_system.get_resource_from_handle(dep).kind == .color_texture) {
+                            // Transition color_attachment_optimal to shader_read_only_optimal.
+                            const vkrp_ptr = renderer.system.get_renderpass_from_handle(vkrp_handle);
+                            const image_ptr = &vkrp_ptr.dynamic.images.map.getPtr("color").?.color.image;
+
+                            const old_layout = vulkan.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                            const new_layout = vulkan.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                            try initial_final_layouts.put(
+                                image_ptr,
+                                .{
+                                    .initial = old_layout,
+                                    .final = new_layout,
+                                },
+                            );
+                            try image_transitions.append(.{
+                                .image = image_ptr,
+                                .old_layout = old_layout,
+                                .new_layout = new_layout,
+                            });
+                        }
+                    }
+                }
+            }
         }
 
         // ---
@@ -298,6 +386,8 @@ pub fn compile(self: *RenderGraph, renderer: *Renderer) !void {
         try self.execute_steps.append(.{
             .renderpass = vkrp_handle,
             .nodes = nodes,
+            .pre_image_transitions = std.ArrayList(ImageTransition).init(renderer.allocator),
+            .image_transitions = image_transitions,
         });
 
         // ---
@@ -309,11 +399,29 @@ pub fn compile(self: *RenderGraph, renderer: *Renderer) !void {
         i = self.nodes.items[i].children.items[0];
     }
 
+    // --- Transition images back to their initial layout.
+
+    var keys_iter = initial_final_layouts.keyIterator();
+    while (keys_iter.next()) |image_ptr| {
+        const initial_final = initial_final_layouts.get(image_ptr.*).?;
+        try self.execute_steps.items[self.root_node].pre_image_transitions.append(.{
+            .image = image_ptr.*,
+            .old_layout = initial_final.final,
+            .new_layout = initial_final.initial,
+        });
+    }
+
+    // ---
+
     std.log.info("rendergraph: compiled {d} steps", .{self.execute_steps.items.len});
     i = 0;
     while (i < self.execute_steps.items.len) : (i += 1) {
         const step = &self.execute_steps.items[i];
-        std.log.info("\t{s}: {d} nodes", .{ renderer.system.get_renderpass_from_handle(step.renderpass).name, step.nodes.len });
+        const name = switch (renderer.system.get_renderpass_from_handle(step.renderpass).*) {
+            .static => |*rp| rp.name,
+            .dynamic => |*rp| rp.name,
+        };
+        std.log.info("\t{s}: {d} nodes", .{ name, step.nodes.len });
     }
 }
 
@@ -332,19 +440,40 @@ pub fn execute(self: *RenderGraph, renderer: *Renderer) !void {
 
     // ---
 
+    for (self.execute_steps.items[0].pre_image_transitions.items) |transition| {
+        try transition.image.transition_image_layout(
+            command_buffer,
+            transition.old_layout,
+            transition.new_layout,
+        );
+    }
+
+    // ---
+
     var i: usize = 0;
     while (i < self.execute_steps.items.len) : (i += 1) {
         const step: *ExecuteStep = &self.execute_steps.items[i];
 
         // ---
 
-        const vkrp = renderer.system.get_renderpass_from_handle(step.renderpass);
-        // TODO: we shouldn't be setting this here.
-        var clear = false;
-        if (i == 0 or vkrp.load_op_clear) {
-            clear = true;
+        const vkrp_ptr = renderer.system.get_renderpass_from_handle(step.renderpass);
+        switch (vkrp_ptr.*) {
+            .static => {
+                // TODO: we shouldn't be setting this here.
+                var clear = false;
+                if (i == 0 or vkrp_ptr.static.load_op_clear) {
+                    clear = true;
+                }
+                vkrp_ptr.static.begin(
+                    command_buffer,
+                    renderer.current_frame_context.?.image_index,
+                    clear,
+                );
+            },
+            .dynamic => {
+                try vkrp_ptr.dynamic.begin(command_buffer);
+            },
         }
-        vkrp.begin(command_buffer, renderer.current_frame_context.?.image_index, clear);
 
         var j: usize = 0;
         while (j < step.nodes.len) : (j += 1) {
@@ -356,29 +485,22 @@ pub fn execute(self: *RenderGraph, renderer: *Renderer) !void {
             }
         }
 
-        vkrp.end(command_buffer);
+        switch (vkrp_ptr.*) {
+            .static => {
+                vkrp_ptr.static.end(command_buffer);
+            },
+            .dynamic => {
+                vkrp_ptr.dynamic.end(command_buffer);
+            },
+        }
 
-        // ---
-
-        // // Pipeline barrier to ensure proper ordering between the render passes
-        // VkImageMemoryBarrier barrier = {};
-        // barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        // barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        // barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        // barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        // barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        // barrier.image = ...; // The image you're transitioning
-        // barrier.subresourceRange = ...; // Define the range
-        //
-        // vkCmdPipelineBarrier(
-        //     commandBuffer,
-        //     VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, // Source stage
-        //     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, // Destination stage
-        //     0,
-        //     0, nullptr,
-        //     0, nullptr,
-        //     1, &barrier
-        // );
+        for (step.image_transitions.items) |transition| {
+            try transition.image.transition_image_layout(
+                command_buffer,
+                transition.old_layout,
+                transition.new_layout,
+            );
+        }
     }
 
     // ---

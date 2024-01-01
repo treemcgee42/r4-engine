@@ -587,3 +587,170 @@ pub inline fn vkDestroyDescriptorPool(
 }
 
 pub const VkDescriptorPool = vulkan.VkDescriptorPool;
+
+// ---
+
+pub const VkRenderingFlags = packed struct(u32) {
+    rendering_contents_secondary_command_buffer: bool = false,
+    suspending: bool = false,
+    resuming: bool = false,
+    _: u1 = 0,
+
+    _a: u28 = 0,
+
+    pub const Bits = enum(c_uint) {
+        rendering_contents_secondary_command_buffer = 1,
+        suspending = 2,
+        resuming = 4,
+        // rest TODO
+    };
+};
+
+pub const VkResolveModeFlags = packed struct(u32) {
+    sample_zero: bool,
+    average: bool,
+    min: bool,
+    max: bool,
+
+    _: u28 = 0,
+
+    pub const Bits = enum(c_uint) {
+        none = 0,
+        sample_zero = 1,
+        average = 2,
+        min = 4,
+        max = 8,
+    };
+};
+
+pub const VkRenderingAttachmentInfo = struct {
+    imageView: l0vk.VkImageView,
+    imageLayout: l0vk.VkImageLayout,
+    resolveMode: l0vk.VkResolveModeFlags.Bits = .none,
+    resolveImageView: l0vk.VkImageView,
+    resolveImageLayout: l0vk.VkImageLayout,
+    loadOp: VkAttachmentLoadOp,
+    storeOp: VkAttachmentStoreOp,
+    clearValue: VkClearValue,
+
+    pub fn to_vulkan_ty(self: *const VkRenderingAttachmentInfo) vulkan.VkRenderingAttachmentInfoKHR {
+        return vulkan.VkRenderingAttachmentInfoKHR{
+            .sType = vulkan.VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR,
+            .pNext = null,
+            .imageView = self.imageView,
+            .imageLayout = @intFromEnum(self.imageLayout),
+            .resolveMode = @intFromEnum(self.resolveMode),
+            .resolveImageView = self.resolveImageView,
+            .resolveImageLayout = @intFromEnum(self.resolveImageLayout),
+            .loadOp = @intFromEnum(self.loadOp),
+            .storeOp = @intFromEnum(self.storeOp),
+            .clearValue = self.clearValue,
+        };
+    }
+};
+
+pub const VkRenderingInfo = struct {
+    flags: VkRenderingFlags = .{},
+    renderArea: l0vk.VkRect2D,
+    layerCount: u32,
+    viewMask: u32 = 0,
+    colorAttachments: []VkRenderingAttachmentInfo,
+    pDepthAttachment: ?*const VkRenderingAttachmentInfo,
+    pStencilAttachment: ?*const VkRenderingAttachmentInfo,
+
+    pub fn to_vulkan_ty(
+        self: *const VkRenderingInfo,
+        allocator: std.mem.Allocator,
+    ) !vulkan.VkRenderingInfoKHR {
+        var color_attachments = try allocator.alloc(
+            vulkan.VkRenderingAttachmentInfoKHR,
+            self.colorAttachments.len,
+        );
+        var i: usize = 0;
+        while (i < self.colorAttachments.len) : (i += 1) {
+            color_attachments[i] = self.colorAttachments[i].to_vulkan_ty();
+        }
+
+        var depth_attachment_ptr: [*c]vulkan.VkRenderingAttachmentInfoKHR = null;
+        if (self.pDepthAttachment != null) {
+            depth_attachment_ptr = try allocator.create(
+                vulkan.VkRenderingAttachmentInfoKHR,
+            );
+            depth_attachment_ptr.* = self.pDepthAttachment.?.to_vulkan_ty();
+        }
+
+        var stencil_attachment_ptr: [*c]vulkan.VkRenderingAttachmentInfoKHR = null;
+        if (self.pStencilAttachment != null) {
+            stencil_attachment_ptr = try allocator.create(
+                vulkan.VkRenderingAttachmentInfoKHR,
+            );
+            stencil_attachment_ptr.* = self.pStencilAttachment.?.to_vulkan_ty();
+        }
+
+        return vulkan.VkRenderingInfoKHR{
+            .sType = vulkan.VK_STRUCTURE_TYPE_RENDERING_INFO_KHR,
+            .pNext = null,
+            .flags = @bitCast(self.flags),
+            .renderArea = self.renderArea,
+            .layerCount = self.layerCount,
+            .viewMask = self.viewMask,
+            .colorAttachmentCount = @intCast(color_attachments.len),
+            .pColorAttachments = color_attachments.ptr,
+            .pDepthAttachment = depth_attachment_ptr,
+            .pStencilAttachment = stencil_attachment_ptr,
+        };
+    }
+};
+
+pub fn vkCmdBeginRendering(
+    instance: vulkan.VkInstance,
+    commandBuffer: l0vk.VkCommandBuffer,
+    pRenderingInfo: *const VkRenderingInfo,
+) !void {
+    var buf: [1000]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buf);
+    const allocator = fba.allocator();
+
+    const rendering_info = try pRenderingInfo.to_vulkan_ty(allocator);
+    const func: vulkan.PFN_vkCmdBeginRenderingKHR = @ptrCast(vulkan.vkGetInstanceProcAddr(instance, "vkCmdBeginRenderingKHR"));
+    @call(.auto, func.?, .{ commandBuffer, &rendering_info });
+}
+
+pub fn vkCmdEndRendering(instance: vulkan.VkInstance, commandBuffer: l0vk.VkCommandBuffer) void {
+    const func: vulkan.PFN_vkCmdEndRenderingKHR = @ptrCast(vulkan.vkGetInstanceProcAddr(instance, "vkCmdEndRenderingKHR"));
+    @call(.auto, func.?, .{commandBuffer});
+}
+
+pub const VkPipelineRenderingCreateInfo = struct {
+    viewMask: u32 = 0,
+    colorAttachmentCount: u32,
+    pColorAttachmentFormats: []const l0vk.VkFormat,
+    depthAttachmentFormat: l0vk.VkFormat,
+    stencilAttachmentFormat: l0vk.VkFormat,
+
+    pub fn to_vulkan_ty(
+        self: *const VkPipelineRenderingCreateInfo,
+        allocator: std.mem.Allocator,
+    ) vulkan.VkPipelineRenderingCreateInfoKHR {
+        var color_attachment_formats = allocator.alloc(
+            vulkan.VkFormat,
+            self.pColorAttachmentFormats.len,
+        ) catch {
+            @panic("fba ran out of memory");
+        };
+        var i: usize = 0;
+        while (i < self.pColorAttachmentFormats.len) : (i += 1) {
+            color_attachment_formats[i] = @intFromEnum(self.pColorAttachmentFormats[i]);
+        }
+
+        return vulkan.VkPipelineRenderingCreateInfoKHR{
+            .sType = vulkan.VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR,
+            .pNext = null,
+            .viewMask = self.viewMask,
+            .colorAttachmentCount = self.colorAttachmentCount,
+            .pColorAttachmentFormats = color_attachment_formats.ptr,
+            .depthAttachmentFormat = @intFromEnum(self.depthAttachmentFormat),
+            .stencilAttachmentFormat = @intFromEnum(self.stencilAttachmentFormat),
+        };
+    }
+};
