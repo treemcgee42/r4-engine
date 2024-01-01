@@ -13,7 +13,7 @@ const RenderPass = @This();
 
 render_pass: l0vk.VkRenderPass,
 
-images: []Image,
+images: ImagesManager,
 framebuffers: []l0vk.VkFramebuffer,
 render_area: RenderArea,
 load_op_clear: bool,
@@ -24,11 +24,6 @@ imgui_descriptor_pool: l0vk.VkDescriptorPool = null,
 name: []const u8,
 tag: RenderPassTag,
 clear_color: [4]f32 = .{ 0, 0, 0, 1 },
-
-const Image = union(enum) {
-    color: buffer.ColorImage,
-    depth: buffer.DepthImage,
-};
 
 pub const RenderArea = struct {
     width: u32,
@@ -48,7 +43,7 @@ pub const RenderPassInitInfo = struct {
 };
 
 pub fn init(info: *const RenderPassInitInfo) !RenderPass {
-    var system = info.system;
+    const system = info.system;
     const swapchain = &info.window.swapchain.swapchain;
 
     var load_op_clear = true;
@@ -66,40 +61,20 @@ pub fn init(info: *const RenderPassInitInfo) !RenderPass {
         },
     }
 
-    var images: []Image = undefined;
+    var images = ImagesManager.init(system.allocator);
     switch (info.tag) {
         .basic_primary => {
             // Just use the swapchain images.
-            images = try system.allocator.alloc(Image, 0);
         },
         .render_to_image => {
-            const num_images: usize = if (info.depth_buffered) 2 else 1;
-            images = try system.allocator.alloc(Image, num_images);
-
-            const image = try buffer.ColorImage.init(
-                system.physical_device,
-                system.logical_device,
-                system.vma_allocator,
+            images.deinit(system);
+            images = try create_render_to_image_images(
+                system,
                 info.render_area.width,
                 info.render_area.height,
-                @intFromEnum(info.window.swapchain.swapchain.swapchain_image_format),
-                @bitCast(l0vk.VkSampleCountFlags{ .bit_1 = true }),
-                @bitCast(l0vk.VkImageUsageFlags{ .color_attachment = true, .sampled = true }),
+                swapchain.swapchain_image_format,
+                info.depth_buffered,
             );
-            images[0] = .{ .color = image };
-            info.system.tmp_image = image;
-
-            if (info.depth_buffered) {
-                const depth_image = try buffer.DepthImage.init(
-                    system.physical_device,
-                    system.logical_device,
-                    system.vma_allocator,
-                    info.render_area.width,
-                    info.render_area.height,
-                    1,
-                );
-                images[1] = .{ .depth = depth_image };
-            }
         },
     }
 
@@ -109,7 +84,7 @@ pub fn init(info: *const RenderPassInitInfo) !RenderPass {
             framebuffers = try create_basic_primary_framebuffers(system, swapchain, render_pass);
         },
         .render_to_image => {
-            framebuffers = try create_render_to_image_framebuffers(system, images, render_pass);
+            framebuffers = try create_render_to_image_framebuffers(system, &images, render_pass);
         },
     }
 
@@ -149,13 +124,7 @@ pub fn deinit(self: *RenderPass, allocator: std.mem.Allocator, system: *VulkanSy
     }
     allocator.free(self.framebuffers);
 
-    if (self.images.len > 0) {
-        self.images[0].color.deinit(system.logical_device, system.vma_allocator);
-        if (self.images.len > 1) {
-            self.images[1].depth.deinit(system.logical_device, system.vma_allocator);
-        }
-        allocator.free(self.images);
-    }
+    self.images.deinit(system);
 
     l0vk.vkDestroyRenderPass(system.logical_device, self.render_pass, null);
 }
@@ -368,11 +337,10 @@ pub fn resize_callback(
     }
     allocator.free(self.framebuffers);
 
+    const depth_buffered = self.images.map.contains("depth");
+
     if (self.tag != .basic_primary) {
-        i = 0;
-        while (i < self.images.len) : (i += 1) {
-            self.images[i].color.deinit(system.logical_device, system.vma_allocator);
-        }
+        self.images.deinit(system);
     }
 
     // ---
@@ -386,23 +354,17 @@ pub fn resize_callback(
             );
         },
         .render_to_image => {
-            self.images[0] = .{
-                .color = try buffer.ColorImage.init(
-                    system.physical_device,
-                    system.logical_device,
-                    system.vma_allocator,
-                    new_render_area.width,
-                    new_render_area.height,
-                    @intFromEnum(swapchain.swapchain_image_format),
-                    @bitCast(l0vk.VkSampleCountFlags{ .bit_1 = true }),
-                    @bitCast(l0vk.VkImageUsageFlags{ .color_attachment = true, .sampled = true }),
-                ),
-            };
-            system.tmp_image = self.images[0].color;
+            self.images = try create_render_to_image_images(
+                system,
+                new_render_area.width,
+                new_render_area.height,
+                swapchain.swapchain_image_format,
+                depth_buffered,
+            );
             system.tmp_renderer.?.ui.?.tmp_uploaded_image = false;
             self.framebuffers = try create_render_to_image_framebuffers(
                 system,
-                self.images,
+                &self.images,
                 self.render_pass,
             );
         },
@@ -680,9 +642,50 @@ fn create_basic_primary_framebuffers(
     return framebuffers;
 }
 
+fn create_render_to_image_images(
+    system: *VulkanSystem,
+    render_area_width: u32,
+    render_area_height: u32,
+    swapchain_image_format: l0vk.VkFormat,
+    depth_buffered: bool,
+) !ImagesManager {
+    var images = ImagesManager.init(system.allocator);
+
+    const color_image = try buffer.ColorImage.init(
+        system.physical_device,
+        system.logical_device,
+        system.vma_allocator,
+        render_area_width,
+        render_area_height,
+        @intFromEnum(swapchain_image_format),
+        @bitCast(l0vk.VkSampleCountFlags{ .bit_1 = true }),
+        @bitCast(l0vk.VkImageUsageFlags{ .color_attachment = true, .sampled = true }),
+    );
+    try images.map.put("color", .{ .color = color_image });
+    system.tmp_image = color_image; // TODO remove
+
+    if (depth_buffered) {
+        const depth_image = try buffer.DepthImage.init(
+            system.physical_device,
+            system.logical_device,
+            system.vma_allocator,
+            render_area_width,
+            render_area_height,
+            1,
+        );
+        try images.map.put("depth", .{ .depth = depth_image });
+    }
+
+    return images;
+}
+
+const CreateRenderToImageFramebuffersError = error{
+    missing_color_image,
+};
+
 fn create_render_to_image_framebuffers(
     system: *VulkanSystem,
-    images: []Image,
+    images: *const ImagesManager,
     render_pass: l0vk.VkRenderPass,
 ) ![]l0vk.VkFramebuffer {
     const allocator = system.allocator;
@@ -691,9 +694,12 @@ fn create_render_to_image_framebuffers(
 
     var attachments = [2]l0vk.VkImageView{ undefined, undefined };
     var pAttachments: []l0vk.VkImageView = undefined;
-    attachments[0] = images[0].color.image_view;
-    if (images.len > 1) {
-        attachments[1] = images[1].depth.image_view;
+    const color_image_ptr = images.map.get("color") orelse {
+        return CreateRenderToImageFramebuffersError.missing_color_image;
+    };
+    attachments[0] = color_image_ptr.color.image_view;
+    if (images.map.get("depth")) |depth_image| {
+        attachments[1] = depth_image.depth.image_view;
         pAttachments = &attachments;
     } else {
         pAttachments = attachments[0..1];
@@ -702,8 +708,8 @@ fn create_render_to_image_framebuffers(
     var framebuffer_info = l0vk.VkFramebufferCreateInfo{
         .renderPass = render_pass,
         .attachments = pAttachments,
-        .width = images[0].color.image.width,
-        .height = images[0].color.image.height,
+        .width = color_image_ptr.color.image.width,
+        .height = color_image_ptr.color.image.height,
         .layers = 1,
     };
 
@@ -719,3 +725,33 @@ fn create_render_to_image_framebuffers(
 }
 
 // --- }}}1
+
+const Image = union(enum) {
+    color: buffer.ColorImage,
+    depth: buffer.DepthImage,
+};
+
+const ImagesManager = struct {
+    map: std.StringHashMap(Image),
+
+    fn init(allocator: std.mem.Allocator) ImagesManager {
+        return .{
+            .map = std.StringHashMap(Image).init(allocator),
+        };
+    }
+
+    fn deinit(self: *ImagesManager, system: *const VulkanSystem) void {
+        var images_iter = self.map.valueIterator();
+        while (images_iter.next()) |image| {
+            switch (image.*) {
+                Image.color => |color_image| {
+                    color_image.deinit(system.logical_device, system.vma_allocator);
+                },
+                Image.depth => |depth_image| {
+                    depth_image.deinit(system.logical_device, system.vma_allocator);
+                },
+            }
+        }
+        self.map.deinit();
+    }
+};
