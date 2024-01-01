@@ -50,6 +50,7 @@ pub const ExtensionNames = struct {
     pub const VK_EXT_DEBUG_UTILS = vulkan.VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
     pub const VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2 = vulkan.VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME;
     pub const VK_KHR_PORTABILITY_ENUMERATION = vulkan.VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME;
+    pub const khr_dynamic_rendering = vulkan.VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME;
 };
 
 pub const VkInstanceCreateFlags = packed struct(u32) {
@@ -120,6 +121,37 @@ pub fn vkCreateInstance(
     }
 
     return instance;
+}
+
+pub const VkApiVersion = struct {
+    major: u32,
+    minor: u32,
+    patch: u32,
+};
+
+pub const vkEnumerateInstanceVersionError = error{
+    VK_ERROR_OUT_OF_HOST_MEMORY,
+};
+
+pub fn vkEnumerateInstanceVersion() vkEnumerateInstanceVersionError!VkApiVersion {
+    var version: u32 = undefined;
+    const result = vulkan.vkEnumerateInstanceVersion(&version);
+    if (result != vulkan.VK_SUCCESS) {
+        switch (result) {
+            vulkan.VK_ERROR_OUT_OF_HOST_MEMORY => return vkEnumerateInstanceVersionError.VK_ERROR_OUT_OF_HOST_MEMORY,
+            else => unreachable,
+        }
+    }
+
+    const major = vulkan.VK_VERSION_MAJOR(version);
+    const minor = vulkan.VK_VERSION_MINOR(version);
+    const patch = vulkan.VK_VERSION_PATCH(version);
+
+    return VkApiVersion{
+        .major = major,
+        .minor = minor,
+        .patch = patch,
+    };
 }
 
 pub inline fn vkDestroyInstance(

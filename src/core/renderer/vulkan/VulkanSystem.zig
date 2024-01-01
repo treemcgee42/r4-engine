@@ -5,15 +5,22 @@ const glfw = @import("glfw");
 const DebugMessenger = @import("./DebugMessenger.zig");
 const VulkanSystem = @This();
 const PipelineSystem = @import("./pipeline.zig").PipelineSystem;
-pub const RenderPass = @import("./RenderPass.zig");
-pub const RenderPassInitInfo = RenderPass.RenderPassInitInfo;
+const renderpass_module = @import("./RenderPass.zig");
+pub const RenderpassSystem = renderpass_module.RenderpassSystem;
+pub const StaticRenderpassCreateInfo = renderpass_module.StaticRenderpass.CreateInfo;
+pub const DynamicRenderpassCreateInfo = renderpass_module.DynamicRenderpass.CreateInfo;
+pub const Renderpass = renderpass_module.Renderpass;
+pub const RenderpassHandle = renderpass_module.RenderpassHandle;
+pub const RenderpassImage = renderpass_module.Image;
 const Window = @import("../../Window.zig");
 const l0 = @import("../layer0/l0.zig");
 const l0vk = l0.vulkan;
+const vulkan = @import("vulkan");
 const vma = @import("vma");
 pub const mesh = @import("./mesh.zig");
 // tmp
 const buffer = @import("buffer.zig");
+pub const VulkanImage = buffer.VulkanImage;
 const Renderer = @import("../Renderer.zig");
 const Vertex = @import("../../../main.zig").Vertex;
 
@@ -34,7 +41,7 @@ command_pool: l0vk.VkCommandPool,
 max_usable_sample_count: l0vk.VkSampleCountFlags.Bits,
 
 pipeline_system: PipelineSystem,
-renderpass_system: RenderPassSystem,
+renderpass_system: RenderpassSystem,
 sync_system: SyncSystem,
 
 vma_allocator: vma.VmaAllocator,
@@ -49,54 +56,6 @@ pub const DeletionFn = *const fn (*anyopaque) void;
 pub const DeletionQueueItem = struct {
     deletion_fn: DeletionFn,
     context: *anyopaque,
-};
-
-pub const RenderPassHandle = usize;
-const RenderPassSystem = struct {
-    renderpasses: std.ArrayList(RenderPass),
-
-    fn init(allocator_: std.mem.Allocator) RenderPassSystem {
-        return .{
-            .renderpasses = std.ArrayList(RenderPass).init(allocator_),
-        };
-    }
-
-    fn deinit(self: *RenderPassSystem, system: *VulkanSystem) void {
-        var i: usize = 0;
-        while (i < self.renderpasses.items.len) : (i += 1) {
-            self.renderpasses.items[i].deinit(system.allocator, system);
-        }
-
-        self.renderpasses.deinit();
-    }
-
-    fn create_renderpass(self: *RenderPassSystem, info: *const RenderPass.RenderPassInitInfo) !RenderPassHandle {
-        const rp = try RenderPass.init(info);
-        try self.renderpasses.append(rp);
-        return self.renderpasses.items.len - 1;
-    }
-
-    fn get_renderpass_from_handle(self: *RenderPassSystem, handle: RenderPassHandle) *RenderPass {
-        return &self.renderpasses.items[handle];
-    }
-
-    fn resize_all(self: *RenderPassSystem, system: *VulkanSystem, window: *Window) !void {
-        const new_window_size = window.size();
-        const new_render_area = .{
-            .width = new_window_size.width,
-            .height = new_window_size.height,
-        };
-
-        var i: usize = 0;
-        while (i < self.renderpasses.items.len) : (i += 1) {
-            try self.renderpasses.items[i].resize_callback(
-                system.allocator,
-                system,
-                &window.swapchain.swapchain,
-                new_render_area,
-            );
-        }
-    }
 };
 
 pub const FenceHandle = usize;
@@ -186,7 +145,11 @@ const validation_layers = [_][*c]const u8{
     "VK_LAYER_KHRONOS_validation",
 };
 
-const device_extensions = [_][*c]const u8{ l0vk.ExtensionNames.khr_swapchain, "VK_KHR_portability_subset" };
+const device_extensions = [_][*c]const u8{
+    l0vk.ExtensionNames.khr_swapchain,
+    "VK_KHR_portability_subset",
+    l0vk.ExtensionNames.khr_dynamic_rendering,
+};
 
 const max_frames_in_flight: usize = 2;
 
@@ -265,7 +228,7 @@ pub fn init(allocator_: std.mem.Allocator) !VulkanSystem {
     // ---
 
     const pipeline_system = PipelineSystem.init(allocator_);
-    const renderpass_system = RenderPassSystem.init(allocator_);
+    const renderpass_system = RenderpassSystem.init(allocator_);
     const sync_system = SyncSystem.init(allocator_);
 
     // ---
@@ -358,6 +321,7 @@ fn create_vulkan_instance(allocator_: std.mem.Allocator) !l0vk.VkInstance {
 
         .pEngineName = "No Engine",
         .engineVersion = .{ .major = 1, .minor = 0, .patch = 0 },
+        .apiVersion = vulkan.VK_API_VERSION_1_2,
     };
 
     // ---
@@ -382,14 +346,22 @@ fn create_vulkan_instance(allocator_: std.mem.Allocator) !l0vk.VkInstance {
         create_info.enabledLayerNames = validation_layers[0..];
     }
 
-    // std.log.info("{d} available extensions:", .{available_extensions_count});
+    // du.log("vulkan", .debug, "Available instance extensions:", .{});
     // for (available_extensions) |extension| {
-    //     std.log.info("\t{s}", .{extension.extensionName});
+    //     std.debug.print("\t{s}\n", .{extension.extensionName});
     // }
 
     // ---
 
     const vk_instance = try l0vk.vkCreateInstance(&create_info, null);
+
+    const version = try l0vk.vkEnumerateInstanceVersion();
+    du.log(
+        "vulkan",
+        .debug,
+        "vulkan instance created with version {d}.{d}.{d}",
+        .{ version.major, version.minor, version.patch },
+    );
 
     return vk_instance;
 }
@@ -680,10 +652,16 @@ fn create_logical_device(
         .samplerAnisotropy = true,
     };
 
+    const dynamic_rendering_feature: vulkan.VkPhysicalDeviceDynamicRenderingFeaturesKHR = .{
+        .sType = vulkan.VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR,
+        .dynamicRendering = vulkan.VK_TRUE,
+    };
+
     var create_info = l0vk.VkDeviceCreateInfo{
         .queueCreateInfos = queue_create_infos.items,
         .pEnabledFeatures = &device_features,
         .enabledExtensionNames = &device_extensions,
+        .pNext = &dynamic_rendering_feature,
     };
     if (enable_validation_layers) {
         create_info.enabledLayerNames = &validation_layers;
@@ -890,11 +868,24 @@ fn create_command_pool(
 
 // --- }}}1
 
-pub fn create_renderpass(self: *VulkanSystem, info: *const RenderPass.RenderPassInitInfo) !RenderPassHandle {
-    return self.renderpass_system.create_renderpass(info);
+pub fn create_static_renderpass(
+    self: *VulkanSystem,
+    info: *const StaticRenderpassCreateInfo,
+) !RenderpassHandle {
+    return self.renderpass_system.create_static_renderpass(info);
 }
 
-pub fn get_renderpass_from_handle(self: *VulkanSystem, handle: RenderPassHandle) *RenderPass {
+pub fn create_dynamic_renderpass(
+    self: *VulkanSystem,
+    info: *const DynamicRenderpassCreateInfo,
+) !RenderpassHandle {
+    return self.renderpass_system.create_dynamic_renderpass(info);
+}
+
+pub fn get_renderpass_from_handle(
+    self: *VulkanSystem,
+    handle: RenderpassHandle,
+) *Renderpass {
     return self.renderpass_system.get_renderpass_from_handle(handle);
 }
 

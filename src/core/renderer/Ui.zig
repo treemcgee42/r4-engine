@@ -31,7 +31,7 @@ pub fn init(renderer: *Renderer, window: *Window, config_flags: ConfigFlags) !Ui
     // This needs to happen now so ImGUI can start receiving commands after this call.
 
     const window_size = window.size();
-    const renderpass_init_info = VulkanSystem.RenderPassInitInfo{
+    const renderpass_init_info = VulkanSystem.StaticRenderpassCreateInfo{
         .system = &renderer.system,
         .window = window,
 
@@ -44,7 +44,7 @@ pub fn init(renderer: *Renderer, window: *Window, config_flags: ConfigFlags) !Ui
         },
         .name = "ImGui",
     };
-    const vulkan_renderpass_handle = try renderer.system.create_renderpass(&renderpass_init_info);
+    const vulkan_renderpass_handle = try renderer.system.create_static_renderpass(&renderpass_init_info);
 
     // ---
 

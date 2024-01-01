@@ -10,8 +10,8 @@ pub const RenderPassInfo = RenderPass.RenderPassInfo;
 const Swapchain = @import("Swapchain.zig");
 const Window = @import("../Window.zig");
 const Ui = @import("./Ui.zig");
-const VulkanRenderPass = VulkanSystem.RenderPass;
-const VulkanRenderPassHandle = VulkanSystem.RenderPassHandle;
+const VulkanRenderPass = VulkanSystem.Renderpass;
+const VulkanRenderPassHandle = VulkanSystem.RenderpassHandle;
 const VertexBuffer = @import("vulkan/buffer.zig").VertexBuffer;
 const PushConstants = @import("./Scene.zig").PushConstants;
 
@@ -359,8 +359,13 @@ pub fn set_renderpass_clear_color(
         return;
     }
 
-    const vk_rp_ptr = self.get_vulkan_rp_from_virtual_rp_handle(virtual_rp_handle);
-    vk_rp_ptr.?.*.clear_color = color;
+    const vk_rp_ptr = self.get_vulkan_rp_from_virtual_rp_handle(virtual_rp_handle).?;
+    switch (vk_rp_ptr.*) {
+        .static => vk_rp_ptr.static.clear_color = color,
+        .dynamic => {
+            vk_rp_ptr.dynamic.set_color_clear_value(color);
+        },
+    }
 }
 
 pub fn begin_renderpass(self: *Renderer, render_pass: RenderPassHandle) !void {

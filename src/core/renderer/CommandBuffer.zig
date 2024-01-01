@@ -91,7 +91,7 @@ fn execute_upload_push_constants(
     const virtual_pipeline = renderer.get_pipeline_from_handle(push_constants_data.pipeline);
     const virtual_renderpass_handle = virtual_pipeline.render_pass;
     const vk_renderpass_handle = renderer.render_graph.?.rp_handle_to_real_rp.get(virtual_renderpass_handle).?;
-    const vk_renderpass = renderer.system.get_renderpass_from_handle(vk_renderpass_handle).render_pass;
+    const vk_renderpass = renderer.system.get_renderpass_from_handle(vk_renderpass_handle);
     const pipeline_layout = (try renderer.system.pipeline_system.query(
         renderer,
         virtual_pipeline,
@@ -137,7 +137,7 @@ fn execute_bind_pipeline(renderer: *Renderer, virtual_pipeline_handle: VirtualPi
     const virtual_pipeline = renderer.get_pipeline_from_handle(virtual_pipeline_handle);
     const virtual_renderpass_handle = virtual_pipeline.render_pass;
     const vk_renderpass_handle = renderer.render_graph.?.rp_handle_to_real_rp.get(virtual_renderpass_handle).?;
-    const vk_renderpass = renderer.system.get_renderpass_from_handle(vk_renderpass_handle).render_pass;
+    const vk_renderpass = renderer.system.get_renderpass_from_handle(vk_renderpass_handle);
     const vk_pipeline = (try renderer.system.pipeline_system.query(
         renderer,
         virtual_pipeline,
