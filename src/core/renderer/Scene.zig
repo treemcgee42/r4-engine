@@ -1,7 +1,7 @@
 const std = @import("std");
 const dutil = @import("debug_utils");
 const r4_ecs = @import("ecs");
-const math = @import("../../math.zig");
+const math = @import("math");
 const PipelineHandle = @import("./Renderer.zig").PipelineHandle;
 const Renderer = @import("./Renderer.zig");
 const vulkan = @import("vulkan");
@@ -244,7 +244,7 @@ pub const PushConstants = struct {
 
 // ---
 
-const cglm = @import("../../c.zig").cglm;
+const cglm = @import("cglm");
 
 const VertexRaw = extern struct {
     position: cglm.vec3,

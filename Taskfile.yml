@@ -40,6 +40,11 @@ tasks:
       - "zig-out/bin/game_engine"
     env:
       DYLD_LIBRARY_PATH: "{{.VULKAN_SDK}}/macOS/lib:/opt/homebrew/opt/glfw/lib:/opt/homebrew/opt/glm/lib:/Users/ogmalladii/dev/zig/game_engine/external/cglm-0.9.1/build"
+        
+  test-file:
+    cmds:
+      - task: build
+      - "{{.ZIGC}} test {{.CLI_ARGS}}"
 
   debug:
     cmds:

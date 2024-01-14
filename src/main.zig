@@ -1,19 +1,10 @@
 const std = @import("std");
-const builtin = @import("builtin");
+
+const r4_core = @import("r4_core");
+const Core = r4_core.Core;
+const Window = r4_core.Window;
+
 const du = @import("debug_utils");
-
-const glfw = @import("c.zig").glfw;
-const cglm = @import("c.zig").cglm;
-
-const Window = @import("core/Window.zig");
-
-const Math = @import("math.zig");
-
-const Core = @import("core/Core.zig");
-const RenderPass = @import("core/renderer/RenderPass.zig");
-
-const WIDTH: u32 = 800;
-const HEIGHT: u32 = 600;
 
 // ---
 
@@ -34,10 +25,4 @@ pub fn main() !void {
     defer window.deinit(&core);
 
     core.renderer.system.prep_for_deinit();
-
-    // var app = try HelloTriangleApp.init(allocator);
-    // app.setup_resize();
-    // defer app.deinit();
-    //
-    // try app.run();
 }

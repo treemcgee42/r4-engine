@@ -10,7 +10,7 @@ const vma = @import("vma");
 const VulkanError = @import("./VulkanSystem.zig").VulkanError;
 const vertex = @import("../../../vertex.zig");
 const l0vk = @import("../layer0/vulkan/vulkan.zig");
-const math = @import("../../../math.zig");
+const math = @import("math");
 
 fn find_memory_type(
     physical_device: l0vk.VkPhysicalDevice,

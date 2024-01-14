@@ -9,10 +9,9 @@ const RenderPass = @import("renderer/RenderPass.zig");
 const Renderer = @import("renderer/Renderer.zig");
 const Resource = Renderer.Resource;
 const buffer = @import("renderer/vulkan//buffer.zig");
-const main = @import("../main.zig");
 const VulkanSystem = @import("renderer/vulkan/VulkanSystem.zig");
 const Scene = @import("renderer/Scene.zig");
-const math = @import("../math.zig");
+const math = @import("math");
 const gltf_loader = @import("renderer/gltf_loader/gltf_loader.zig");
 
 const Window = @This();

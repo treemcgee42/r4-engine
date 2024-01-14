@@ -1,4 +1,4 @@
-const math = @import("math.zig");
+const math = @import("math");
 const vulkan = @import("c.zig").vulkan;
 
 pub const Vertex = struct {

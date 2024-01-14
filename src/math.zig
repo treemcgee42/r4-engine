@@ -1,5 +1,5 @@
 const std = @import("std");
-const cglm = @import("c.zig").cglm;
+const cglm = @import("cglm");
 
 pub const Vec2f = extern struct {
     raw: cglm.vec2,

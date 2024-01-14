@@ -1,7 +1,7 @@
 const std = @import("std");
 const du = @import("debug_utils");
 const cgltf = @import("cgltf");
-const math = @import("../../../math.zig");
+const math = @import("math");
 // In the future this could probably be generic.
 const Vertex = @import("../Scene.zig").Vertex;
 const Mesh = @import("../Scene.zig").Mesh;

@@ -22,7 +22,8 @@ pub const mesh = @import("./mesh.zig");
 const buffer = @import("buffer.zig");
 pub const VulkanImage = buffer.VulkanImage;
 const Renderer = @import("../Renderer.zig");
-const Vertex = @import("../../../main.zig").Vertex;
+const resource = @import("./resource.zig");
+const RenderGraph = @import("./RenderGraph.zig");
 
 allocator: std.mem.Allocator,
 
