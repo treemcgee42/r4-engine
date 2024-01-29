@@ -418,7 +418,7 @@ pub const WindowSize = struct {
 /// Returns (width, height).
 pub fn size(self: *const Window) WindowSize {
     return .{
-        .width = self.swapchain.swapchain.swapchain_extent.width,
-        .height = self.swapchain.swapchain.swapchain_extent.height,
+        .width = self.swapchain.swapchain_ptr.swapchain_extent.width,
+        .height = self.swapchain.swapchain_ptr.swapchain_extent.height,
     };
 }

@@ -156,8 +156,8 @@ fn execute_bind_pipeline(renderer: *Renderer, virtual_pipeline_handle: VirtualPi
     const viewport = vulkan.VkViewport{
         .x = 0.0,
         .y = 0.0,
-        .width = @floatFromInt(swapchain.swapchain.swapchain_extent.width), // TODO
-        .height = @floatFromInt(swapchain.swapchain.swapchain_extent.height),
+        .width = @floatFromInt(swapchain.swapchain_ptr.swapchain_extent.width), // TODO
+        .height = @floatFromInt(swapchain.swapchain_ptr.swapchain_extent.height),
         .minDepth = 0.0,
         .maxDepth = 1.0,
     };
@@ -165,7 +165,7 @@ fn execute_bind_pipeline(renderer: *Renderer, virtual_pipeline_handle: VirtualPi
 
     const scissor = vulkan.VkRect2D{
         .offset = .{ .x = 0, .y = 0 },
-        .extent = swapchain.swapchain.swapchain_extent,
+        .extent = swapchain.swapchain_ptr.swapchain_extent,
     };
     vulkan.vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 }

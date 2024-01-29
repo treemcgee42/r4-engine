@@ -18,6 +18,7 @@ const l0vk = l0.vulkan;
 const vulkan = @import("vulkan");
 const vma = @import("vma");
 pub const mesh = @import("./mesh.zig");
+const Swapchain = @import("./Swapchain.zig");
 // tmp
 const buffer = @import("buffer.zig");
 pub const VulkanImage = buffer.VulkanImage;
@@ -50,6 +51,8 @@ tmp_image: ?buffer.ColorImage = null,
 tmp_renderer: ?*Renderer = null,
 
 deinit_queue: DeletionQueue,
+
+swapchain: ?Swapchain,
 
 pub const DeletionFn = *const fn (*anyopaque) void;
 
@@ -275,6 +278,8 @@ pub fn init(allocator_: std.mem.Allocator) !VulkanSystem {
         .vma_allocator = vma_allocator,
 
         .deinit_queue = deinit_queue,
+
+        .swapchain = null,
     };
 }
 
@@ -944,6 +949,39 @@ pub fn submit_command_buffer(
         1,
         &submit_info,
         submit_fence,
+    );
+}
+
+pub fn init_swapchain(self: *VulkanSystem, surface: l0vk.VkSurfaceKHR) !void {
+    const swapchain = try Swapchain.init(self.allocator, self, surface);
+    self.swapchain = swapchain;
+}
+
+pub fn deinit_swapchain(self: *VulkanSystem) void {
+    if (self.swapchain) |swapchain| {
+        swapchain.deinit();
+        self.swapchain = null;
+    } else {
+        du.log("vulkan system", .warn, "tried to deinit swapchain, but swapchain is null", .{});
+    }
+}
+
+pub fn recreate_swapchain(
+    self: *VulkanSystem,
+    window: *glfw.GLFWwindow,
+    surface: l0vk.VkSurfaceKHR,
+) !void {
+    const swapchain_settings = try Swapchain.query_swapchain_settings(
+        self.allocator,
+        self.physical_device,
+        self.logical_device,
+        surface,
+    );
+    try self.swapchain.?.recreate_swapchain(
+        self.allocator,
+        self,
+        swapchain_settings,
+        window,
     );
 }
 

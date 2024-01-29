@@ -4,7 +4,7 @@ const VulkanSwapchain = @import("vulkan//Swapchain.zig");
 const Surface = @import("./Surface.zig");
 const Window = @import("../Window.zig");
 
-swapchain: VulkanSwapchain,
+swapchain_ptr: *VulkanSwapchain,
 num_images: usize,
 
 pub const max_frames_in_flight: usize = VulkanSwapchain.max_frames_in_flight;
@@ -12,35 +12,22 @@ pub const max_frames_in_flight: usize = VulkanSwapchain.max_frames_in_flight;
 const Swapchain = @This();
 
 pub fn init(renderer: *Renderer, surface: *const Surface) !Swapchain {
-    const swapchain = try VulkanSwapchain.init(
-        renderer.allocator,
-        &renderer.system,
-        surface.surface,
-    );
+    try renderer.system.init_swapchain(surface.surface);
+    const swapchain_ptr = &renderer.system.swapchain.?;
 
-    const num_images = swapchain.swapchain_image_views.len;
+    const num_images = swapchain_ptr.swapchain_image_views.len;
 
     return .{
-        .swapchain = swapchain,
+        .swapchain_ptr = swapchain_ptr,
         .num_images = num_images,
     };
 }
 
 pub fn recreate(self: *Swapchain, renderer: *Renderer, window: *Window) !void {
-    const swapchain_settings = try VulkanSwapchain.query_swapchain_settings(
-        renderer.allocator,
-        renderer.system.physical_device,
-        renderer.system.logical_device,
-        window.surface.surface,
-    );
-    try self.swapchain.recreate_swapchain(
-        renderer.allocator,
-        &renderer.system,
-        swapchain_settings,
-        window.window,
-    );
+    _ = self;
+    try renderer.system.recreate_swapchain(window.window, window.surface.surface);
 }
 
 pub fn deinit(self: Swapchain, renderer: *Renderer) void {
-    self.swapchain.deinit(renderer.allocator, &renderer.system);
+    self.swapchain_ptr.deinit(renderer.allocator, &renderer.system);
 }

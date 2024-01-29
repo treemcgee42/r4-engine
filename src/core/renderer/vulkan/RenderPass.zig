@@ -74,7 +74,7 @@ pub const RenderpassSystem = struct {
                     try rp_ptr.static.resize_callback(
                         system.allocator,
                         system,
-                        &window.swapchain.swapchain,
+                        window.swapchain.swapchain_ptr,
                         new_render_area,
                     );
                 },
@@ -227,7 +227,7 @@ pub const StaticRenderpass = struct {
 
     pub fn init(info: *const CreateInfo) !StaticRenderpass {
         const system = info.system;
-        const swapchain = &info.window.swapchain.swapchain;
+        const swapchain = &system.swapchain.?;
 
         var load_op_clear = true;
 
@@ -396,8 +396,8 @@ pub const StaticRenderpass = struct {
             .Device = @ptrCast(system.logical_device),
             .Queue = @ptrCast(system.graphics_queue),
             .DescriptorPool = @ptrCast(self.imgui_descriptor_pool),
-            .MinImageCount = @intCast(window.swapchain.swapchain.swapchain_images.len),
-            .ImageCount = @intCast(window.swapchain.swapchain.swapchain_images.len),
+            .MinImageCount = @intCast(window.swapchain.swapchain_ptr.swapchain_images.len),
+            .ImageCount = @intCast(window.swapchain.swapchain_ptr.swapchain_images.len),
             .MSAASamples = @import("vulkan").VK_SAMPLE_COUNT_1_BIT,
         };
         _ = cimgui.ImGui_ImplVulkan_Init(@ptrCast(&vulkan_init_info), @ptrCast(self.render_pass));
@@ -405,7 +405,7 @@ pub const StaticRenderpass = struct {
         // --- Load fonts.
 
         const command_pool = system.command_pool;
-        const command_buffer = window.swapchain.swapchain.a_command_buffers[0];
+        const command_buffer = window.swapchain.swapchain_ptr.a_command_buffers[0];
 
         try l0vk.vkResetCommandPool(
             system.logical_device,
@@ -869,7 +869,7 @@ pub const DynamicRenderpass = struct {
 
     pub fn init(info: CreateInfo) !DynamicRenderpass {
         const system = info.system;
-        const swapchain = &info.window.swapchain.swapchain;
+        const swapchain_ptr = info.window.swapchain.swapchain_ptr;
 
         // --- Images
 
@@ -884,7 +884,7 @@ pub const DynamicRenderpass = struct {
                     system,
                     info.render_area.width,
                     info.render_area.height,
-                    swapchain.swapchain_image_format,
+                    swapchain_ptr.swapchain_image_format,
                     info.depth_buffered,
                 );
             },
@@ -913,7 +913,7 @@ pub const DynamicRenderpass = struct {
                     "color",
                     .{
                         .rendering_info = color_attachment_info,
-                        .format = swapchain.swapchain_image_format,
+                        .format = swapchain_ptr.swapchain_image_format,
                     },
                 );
 

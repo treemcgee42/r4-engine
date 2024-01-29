@@ -135,7 +135,7 @@ pub fn end_frame(self: *Renderer, window: *Window) !void {
         try self.render_graph.?.compile(self);
     }
 
-    var swapchain = &window.swapchain.swapchain;
+    var swapchain = window.swapchain.swapchain_ptr;
     var system = self.system;
 
     const image_available_semaphore = swapchain.current_image_available_semaphore();
