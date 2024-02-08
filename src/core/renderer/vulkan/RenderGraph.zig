@@ -1,16 +1,28 @@
 const l0vk = @import("../layer0/vulkan/vulkan.zig");
+const vulkan = @import("vulkan");
+const Window = @import("../../Window.zig");
 const VulkanSystem = @import("./VulkanSystem.zig");
 const std = @import("std");
 pub const ResourceDescription = @import("./resource.zig").ResourceDescription;
 const dutil = @import("debug_utils");
+const Renderer = @import("../Renderer.zig");
+
+const resource = @import("./resource.zig");
 
 // ---
+
+pub const RenderFn = struct {
+    function: *const fn (*anyopaque, l0vk.VkCommandBuffer) anyerror!void,
+    data: *anyopaque,
+};
 
 pub const Node = struct {
     name: []const u8,
 
     inputs: std.ArrayList(ResourceDescription),
     outputs: std.ArrayList(ResourceDescription),
+
+    render_fn: RenderFn,
 };
 
 /// Associated to a node during graph construction/compilation.
@@ -75,6 +87,7 @@ pub const RenderGraph = struct {
                 .name = nodes[i].name,
                 .inputs = std.ArrayList(ResourceDescription).init(self.allocator),
                 .outputs = std.ArrayList(ResourceDescription).init(self.allocator),
+                .render_fn = nodes[i].render_fn,
             };
 
             try node.inputs.appendSlice(nodes[i].inputs.items);
@@ -132,6 +145,14 @@ pub const RenderGraph = struct {
                 }
 
                 try self.node_data.items[i].edges.appendSlice(output_consumers.?.items);
+
+                // Remove edges from the node to itself.
+                var k: usize = 0;
+                while (k < self.node_data.items[i].edges.items.len) : (k += 1) {
+                    if (self.node_data.items[i].edges.items[k] == i) {
+                        _ = self.node_data.items[i].edges.swapRemove(k);
+                    }
+                }
             }
         }
 
@@ -181,6 +202,201 @@ pub const RenderGraph = struct {
         }
 
         try self.sorted_nodes.append(node_index);
+    }
+
+    fn compile_create_resources(self: *RenderGraph, system: *VulkanSystem, renderer: *Renderer, window: *Window) !void {
+        var constructed_resources = std.StringHashMap(bool).init(self.allocator);
+        defer constructed_resources.deinit();
+
+        var i: usize = 0;
+        while (i < self.nodes.items.len) : (i += 1) {
+            const node_ptr = &self.nodes.items[i];
+            const outputs = node_ptr.outputs.items;
+
+            var j: usize = 0;
+            while (j < outputs.len) : (j += 1) {
+                const output_desc = outputs[j];
+                const output_name = outputs[j].name;
+
+                if (constructed_resources.contains(output_name)) {
+                    continue;
+                }
+                try system.resource_system.create_resource(output_desc);
+                try system.resource_system.create_vulkan_resources(renderer, window, output_name);
+                try constructed_resources.put(output_name, true);
+            }
+        }
+    }
+
+    fn compile_create_renderpasses(self: *RenderGraph, system: *VulkanSystem, renderer: *Renderer, window: *Window) !void {
+        var i: usize = 0;
+        while (i < self.nodes.items.len) : (i += 1) {
+            const node_ptr = &self.nodes.items[i];
+
+            var attachments = std.ArrayList(VulkanSystem.DynamicRenderpass2Attachment).init(self.allocator);
+            defer attachments.deinit();
+
+            var render_area_width: u32 = undefined;
+            var render_area_height: u32 = undefined;
+
+            var j: usize = 0;
+            while (j < node_ptr.outputs.items.len) : (j += 1) {
+                const output_name = node_ptr.outputs.items[j].name;
+
+                const is_attachment = system.resource_system.is_attachment(output_name);
+                if (!is_attachment) {
+                    continue;
+                }
+
+                const attachment_kind = system.resource_system.get_attachment_kind(output_name) catch unreachable;
+                const attachment_format = system.resource_system.get_attachment_format(output_name) catch unreachable;
+
+                if (attachment_kind == .color or attachment_kind == .color_final) {
+                    const dims = try system.resource_system.get_width_and_height(output_name, renderer, window);
+                    render_area_width = dims.width;
+                    render_area_height = dims.height;
+                }
+
+                var image_view: l0vk.VkImageView = undefined;
+                if (attachment_kind != .color_final) {
+                    image_view = try system.resource_system.get_image_view(output_name);
+                }
+
+                try attachments.append(VulkanSystem.DynamicRenderpass2Attachment{
+                    .image_view = image_view,
+                    .kind = attachment_kind,
+                    .format = attachment_format,
+                });
+            }
+
+            const create_info = VulkanSystem.DynamicRenderpass2CreateInfo{
+                .name = node_ptr.name,
+                .system = system,
+                .attachments = attachments.items,
+                .render_area = .{ .width = render_area_width, .height = render_area_height },
+            };
+            const renderpass = try system.renderpass_system.create_new_renderpass(&create_info);
+            self.node_data.items[i].renderpass = renderpass;
+        }
+    }
+
+    pub fn compile(self: *RenderGraph, system: *VulkanSystem, renderer: *Renderer, window: *Window) !void {
+        dutil.log(
+            "render graph",
+            .info,
+            "{s}: starting",
+            .{@src().fn_name},
+        );
+
+        try self.compile_topology();
+        try self.compile_sort();
+        try self.compile_create_resources(system, renderer, window);
+        try self.compile_create_renderpasses(system, renderer, window);
+
+        dutil.log(
+            "render graph",
+            .info,
+            "{s}: finished ({d} nodes)",
+            .{ @src().fn_name, self.sorted_nodes.items.len },
+        );
+    }
+
+    pub fn execute(
+        self: *RenderGraph,
+        renderer: *Renderer,
+        window: *Window,
+    ) !void {
+        try renderer.begin_frame_new(window);
+
+        var command_buffer = renderer.current_frame_context.?.command_buffer_a;
+        try renderer.system.begin_command_buffer(command_buffer);
+
+        var i: usize = 0;
+        while (i < self.sorted_nodes.items.len) : (i += 1) {
+            const node_idx = self.sorted_nodes.items[i];
+            const node_ptr = &self.nodes.items[node_idx];
+            const node_data_ptr = &self.node_data.items[node_idx];
+
+            renderer.system.renderpass_system.pre_begin(
+                window,
+                renderer.current_frame_context.?.image_index,
+                node_data_ptr.renderpass,
+            );
+
+            // --- Transition inputs.
+
+            var j: usize = 0;
+            while (j < node_ptr.inputs.items.len) : (j += 1) {
+                const input = node_ptr.inputs.items[j];
+
+                if (!renderer.system.resource_system.is_attachment(input.name)) {
+                    continue;
+                }
+
+                const attachment_kind = renderer.system.resource_system.get_attachment_kind(input.name) catch unreachable;
+
+                if (attachment_kind == .color_final) {
+                    try renderer.system.resource_system.transition_image_layout(
+                        renderer,
+                        window,
+                        command_buffer,
+                        input.name,
+                        vulkan.VK_IMAGE_LAYOUT_UNDEFINED,
+                        vulkan.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                    );
+                }
+            }
+
+            // ---
+
+            renderer.system.renderpass_system.begin(
+                &renderer.system,
+                node_data_ptr.renderpass,
+                command_buffer,
+            );
+
+            try node_ptr.render_fn.function(node_ptr.render_fn.data, command_buffer);
+
+            renderer.system.renderpass_system.end(
+                &renderer.system,
+                node_data_ptr.renderpass,
+                command_buffer,
+            );
+
+            // --- Transition outputs.
+
+            j = 0;
+            while (j < node_ptr.outputs.items.len) : (j += 1) {
+                const output = node_ptr.outputs.items[j];
+
+                if (!renderer.system.resource_system.is_attachment(output.name)) {
+                    continue;
+                }
+
+                const attachment_kind = renderer.system.resource_system.get_attachment_kind(output.name) catch unreachable;
+
+                if (attachment_kind == .color_final) {
+                    try renderer.system.resource_system.transition_image_layout(
+                        renderer,
+                        window,
+                        command_buffer,
+                        output.name,
+                        vulkan.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                        vulkan.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                    );
+                }
+            }
+        }
+
+        try renderer.system.end_command_buffer(command_buffer);
+        try renderer.system.submit_command_buffer(
+            &command_buffer,
+            renderer.current_frame_context.?.image_available_semaphore,
+            renderer.current_frame_context.?.render_finished_semaphore,
+            renderer.current_frame_context.?.fence,
+        );
+
+        try renderer.end_frame_new(window);
     }
 
     pub fn format(

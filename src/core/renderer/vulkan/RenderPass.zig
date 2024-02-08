@@ -5,6 +5,7 @@ const Window = @import("../../Window.zig");
 const cimgui = @import("cimgui");
 const Swapchain = @import("./Swapchain.zig");
 const VulkanSystem = @import("./VulkanSystem.zig");
+const AttachmentKind = @import("./resource.zig").AttachmentKind;
 const RenderPassInfo = @import("../RenderPass.zig").RenderPassInfo;
 const buffer = @import("buffer.zig");
 const RenderPassTag = @import("../RenderPass.zig").RenderPassTag;
@@ -12,16 +13,23 @@ const RenderPassTag = @import("../RenderPass.zig").RenderPassTag;
 pub const Renderpass = union(enum) {
     static: StaticRenderpass,
     dynamic: DynamicRenderpass,
+    new: DynamicRenderpass2,
+};
+
+pub const RenderpassCollection = struct {
+    renderpasses: []Renderpass,
 };
 
 pub const RenderpassHandle = usize;
 
 pub const RenderpassSystem = struct {
     renderpasses: std.ArrayList(Renderpass),
+    rp_map: std.StringHashMap(RenderpassHandle),
 
     pub fn init(allocator_: std.mem.Allocator) RenderpassSystem {
         return .{
             .renderpasses = std.ArrayList(Renderpass).init(allocator_),
+            .rp_map = std.StringHashMap(RenderpassHandle).init(allocator_),
         };
     }
 
@@ -31,10 +39,12 @@ pub const RenderpassSystem = struct {
             switch (self.renderpasses.items[i]) {
                 .static => |*rp| rp.deinit(system.allocator, system),
                 .dynamic => |*rp| rp.deinit(system),
+                .new => |*rp| rp.deinit(system.allocator),
             }
         }
 
         self.renderpasses.deinit();
+        self.rp_map.deinit();
     }
 
     pub fn create_static_renderpass(
@@ -43,7 +53,10 @@ pub const RenderpassSystem = struct {
     ) !RenderpassHandle {
         const rp = try StaticRenderpass.init(info);
         try self.renderpasses.append(.{ .static = rp });
-        return self.renderpasses.items.len - 1;
+
+        const handle = self.renderpasses.items.len - 1;
+        try self.rp_map.put(info.name, handle);
+        return handle;
     }
 
     pub fn create_dynamic_renderpass(
@@ -52,11 +65,34 @@ pub const RenderpassSystem = struct {
     ) !RenderpassHandle {
         const rp = try DynamicRenderpass.init(info.*);
         try self.renderpasses.append(.{ .dynamic = rp });
-        return self.renderpasses.items.len - 1;
+
+        const handle = self.renderpasses.items.len - 1;
+        try self.rp_map.put(info.name, handle);
+        return handle;
+    }
+
+    pub fn create_new_renderpass(
+        self: *RenderpassSystem,
+        info: *const DynamicRenderpass2.CreateInfo,
+    ) !RenderpassHandle {
+        const rp = try DynamicRenderpass2.init(info);
+        try self.renderpasses.append(.{ .new = rp });
+
+        const handle = self.renderpasses.items.len - 1;
+        try self.rp_map.put(info.name, handle);
+        return handle;
     }
 
     pub fn get_renderpass_from_handle(self: *RenderpassSystem, handle: RenderpassHandle) *Renderpass {
         return &self.renderpasses.items[handle];
+    }
+
+    pub fn get_renderpass_from_name(self: *RenderpassSystem, name: []const u8) ?*Renderpass {
+        if (self.rp_map.get(name)) |handle| {
+            return self.get_renderpass_from_handle(handle);
+        }
+
+        return null;
     }
 
     pub fn resize_all(self: *RenderpassSystem, system: *VulkanSystem, window: *Window) !void {
@@ -84,7 +120,56 @@ pub const RenderpassSystem = struct {
                         .extent = new_render_area,
                     };
                 },
+                .new => {},
             }
+        }
+    }
+
+    pub fn pre_begin(
+        self: *RenderpassSystem,
+        window: *Window,
+        current_frame: usize,
+        handle: RenderpassHandle,
+    ) void {
+        const rp_ptr = &self.renderpasses.items[handle];
+        switch (rp_ptr.*) {
+            .static => {},
+            .dynamic => {},
+            .new => {
+                rp_ptr.new.pre_begin(window, current_frame);
+            },
+        }
+    }
+
+    pub fn begin(
+        self: *RenderpassSystem,
+        system: *VulkanSystem,
+        handle: RenderpassHandle,
+        command_buffer: l0vk.VkCommandBuffer,
+    ) void {
+        const rp_ptr = &self.renderpasses.items[handle];
+        switch (rp_ptr.*) {
+            .static => @panic("todo"),
+            .dynamic => @panic("todo"),
+            .new => {
+                rp_ptr.new.begin(system, command_buffer);
+            },
+        }
+    }
+
+    pub fn end(
+        self: *RenderpassSystem,
+        system: *VulkanSystem,
+        handle: RenderpassHandle,
+        command_buffer: l0vk.VkCommandBuffer,
+    ) void {
+        const rp_ptr = &self.renderpasses.items[handle];
+        switch (rp_ptr.*) {
+            .static => @panic("todo"),
+            .dynamic => @panic("todo"),
+            .new => {
+                rp_ptr.new.end(system, command_buffer);
+            },
         }
     }
 };
@@ -994,5 +1079,168 @@ pub const DynamicRenderpass = struct {
 
     pub fn end(self: *DynamicRenderpass, command_buffer: l0vk.VkCommandBuffer) void {
         l0vk.vkCmdEndRendering(self.system.instance, command_buffer);
+    }
+};
+
+// --- DynamicRenderpass2
+
+pub const DynamicRenderpass2 = struct {
+    name: []const u8,
+    color_attachment_infos: []Attachment,
+    color_attachments: []l0vk.VkRenderingAttachmentInfo,
+    depth_attachment_infos: []Attachment,
+    depth_attachments: []l0vk.VkRenderingAttachmentInfo,
+    clear_color: [4]f32,
+    render_info: l0vk.VkRenderingInfo,
+
+    pub const Attachment = struct {
+        kind: AttachmentKind,
+        format: l0vk.VkFormat,
+        image_view: l0vk.VkImageView,
+    };
+
+    const Self = @This();
+
+    pub const CreateInfo = struct {
+        name: []const u8,
+        system: *VulkanSystem,
+        attachments: []const Attachment,
+        clear_color: [4]f32 = .{ 0, 0, 0, 1 },
+        render_area: RenderArea,
+    };
+
+    pub fn init(info: *const DynamicRenderpass2.CreateInfo) !Self {
+        const allocator = info.system.allocator;
+
+        var num_color_attachments: usize = 0;
+        var num_depth_attachments: usize = 0;
+        var i: usize = 0;
+        while (i < info.attachments.len) : (i += 1) {
+            const attachment_ptr = &info.attachments[i];
+            switch (attachment_ptr.kind) {
+                .color, .color_final => num_color_attachments += 1,
+                .depth => num_depth_attachments += 1,
+            }
+        }
+
+        var color_attachment_infos = try allocator.alloc(
+            Attachment,
+            num_color_attachments,
+        );
+        var color_attachments = try allocator.alloc(
+            l0vk.VkRenderingAttachmentInfo,
+            num_color_attachments,
+        );
+        var depth_attachment_infos = try allocator.alloc(
+            Attachment,
+            num_depth_attachments,
+        );
+        var depth_attachments = try allocator.alloc(
+            l0vk.VkRenderingAttachmentInfo,
+            num_depth_attachments,
+        );
+
+        i = 0;
+        while (i < info.attachments.len) : (i += 1) {
+            const attachment_ptr = &info.attachments[i];
+            switch (attachment_ptr.kind) {
+                .color_final => {
+                    color_attachment_infos[i] = attachment_ptr.*;
+                    color_attachments[i] = l0vk.VkRenderingAttachmentInfo{
+                        .imageView = undefined,
+                        .imageLayout = .color_attachment_optimal,
+                        .loadOp = .clear,
+                        .storeOp = .store,
+                        .clearValue = .{ .color = .{ .float32 = info.clear_color } },
+
+                        .resolveImageLayout = .undefined,
+                        .resolveImageView = null,
+                    };
+                },
+                .color => {
+                    color_attachment_infos[i] = attachment_ptr.*;
+                    color_attachments[i] = l0vk.VkRenderingAttachmentInfo{
+                        .imageView = attachment_ptr.image_view,
+                        .imageLayout = .color_attachment_optimal,
+                        .loadOp = .clear,
+                        .storeOp = .store,
+                        .clearValue = .{ .color = .{ .float32 = info.clear_color } },
+
+                        .resolveImageLayout = .undefined,
+                        .resolveImageView = null,
+                    };
+                },
+                .depth => {
+                    depth_attachment_infos[i] = attachment_ptr.*;
+                    depth_attachments[i] = l0vk.VkRenderingAttachmentInfo{
+                        .imageView = attachment_ptr.image_view,
+                        .imageLayout = .depth_stencil_attachment_optimal,
+                        .loadOp = .clear,
+                        .storeOp = .store,
+                        .clearValue = .{
+                            .depthStencil = .{
+                                .depth = 1.0,
+                                .stencil = 0,
+                            },
+                        },
+
+                        .resolveImageLayout = .undefined,
+                        .resolveImageView = null,
+                    };
+                },
+            }
+        }
+
+        const depth_attachment_ptr = if (num_depth_attachments > 0) &depth_attachments[0] else null;
+
+        const render_info = l0vk.VkRenderingInfo{
+            .renderArea = l0vk.VkRect2D{
+                .offset = .{ .x = 0, .y = 0 },
+                .extent = .{ .width = info.render_area.width, .height = info.render_area.height },
+            },
+
+            .layerCount = 1,
+            .colorAttachments = color_attachments,
+            .pDepthAttachment = depth_attachment_ptr,
+            .pStencilAttachment = null,
+        };
+
+        return DynamicRenderpass2{
+            .name = info.name,
+            .color_attachment_infos = color_attachment_infos,
+            .color_attachments = color_attachments,
+            .depth_attachment_infos = depth_attachment_infos,
+            .depth_attachments = depth_attachments,
+            .clear_color = info.clear_color,
+            .render_info = render_info,
+        };
+    }
+
+    pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+        allocator.free(self.color_attachment_infos);
+        allocator.free(self.color_attachments);
+        allocator.free(self.depth_attachment_infos);
+        allocator.free(self.depth_attachments);
+    }
+
+    pub fn pre_begin(self: *Self, window: *Window, current_frame: usize) void {
+        var i: usize = 0;
+        while (i < self.color_attachment_infos.len) : (i += 1) {
+            const attachment_ptr = &self.color_attachments[i];
+            const info_ptr = &self.color_attachment_infos[i];
+
+            if (info_ptr.kind == .color_final) {
+                attachment_ptr.imageView = window.swapchain.swapchain.swapchain_image_views[current_frame];
+            }
+        }
+    }
+
+    pub fn begin(self: *Self, system: *VulkanSystem, command_buffer: l0vk.VkCommandBuffer) void {
+        l0vk.vkCmdBeginRendering(system.instance, command_buffer, &self.render_info) catch unreachable;
+    }
+
+    pub fn end(self: *Self, system: *VulkanSystem, command_buffer: l0vk.VkCommandBuffer) void {
+        _ = self;
+        l0vk.vkCmdEndRendering(system.instance, command_buffer);
     }
 };

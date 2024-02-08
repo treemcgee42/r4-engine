@@ -16,5 +16,26 @@ pub fn init(renderer: *Renderer, window: *glfw.GLFWwindow) !Window {
 }
 
 pub fn deinit(self: Window, renderer: *Renderer) void {
-    vulkan.vkDestroySurfaceKHR(renderer.system.instance, self.surface, null);
+    const ctx = renderer.system.allocator.create(DeinitCtx) catch unreachable;
+    ctx.* = .{
+        .system = &renderer.system,
+        .surface = self.surface,
+    };
+
+    renderer.system.deinit_queue.insert(
+        @ptrCast(ctx),
+        &deinit_generic,
+    ) catch unreachable;
+}
+
+const DeinitCtx = struct {
+    system: *VulkanSystem,
+    surface: vulkan.VkSurfaceKHR,
+};
+
+fn deinit_generic(ctx_untyped: *anyopaque) void {
+    const ctx: *DeinitCtx = @ptrCast(@alignCast(ctx_untyped));
+    vulkan.vkDestroySurfaceKHR(ctx.system.instance, ctx.surface, null);
+
+    ctx.system.allocator.destroy(ctx);
 }

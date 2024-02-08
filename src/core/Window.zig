@@ -18,15 +18,12 @@ const Window = @This();
 
 window: *glfw.GLFWwindow,
 surface: Surface,
-framebuffer_resized: bool,
+framebuffer_resized: bool = false,
 
 swapchain: Swapchain,
 
-render_passes: std.ArrayList(RenderPass),
-
 imgui_enabled: bool,
 imgui_descriptor_pool: vulkan.VkDescriptorPool = null,
-
 show_imgui_demo_window: bool = true,
 
 pub const WindowInitInfo = struct {
@@ -71,21 +68,25 @@ pub fn init(core: *Core, info: *const WindowInitInfo) WindowInitError!Window {
         return WindowInitError.swapchain_creation_failed;
     };
 
-    const render_passes = std.ArrayList(RenderPass).init(core.allocator);
-
     // ---
 
     return .{
         .window = maybe_window.?,
         .surface = surface,
-        .framebuffer_resized = false,
 
         .swapchain = swapchain,
 
-        .render_passes = render_passes,
-
         .imgui_enabled = false,
     };
+}
+
+pub fn should_close(self: *Window) bool {
+    if (glfw.glfwWindowShouldClose(self.window) == 0) {
+        glfw.glfwPollEvents();
+        return false;
+    }
+
+    return true;
 }
 
 pub fn run_main_loop(self: *Window, core: *Core) !void {
@@ -375,12 +376,6 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
 }
 
 pub fn deinit(self: *Window, core: *Core) void {
-    var i: usize = 0;
-    while (i < self.render_passes.items.len) : (i += 1) {
-        self.render_passes.items[i].deinit(&core.renderer);
-    }
-    self.render_passes.deinit();
-
     self.swapchain.deinit(&core.renderer);
 
     self.surface.deinit(&core.renderer);

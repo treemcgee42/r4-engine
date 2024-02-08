@@ -420,6 +420,7 @@ pub fn compile(self: *RenderGraph, renderer: *Renderer) !void {
         const name = switch (renderer.system.get_renderpass_from_handle(step.renderpass).*) {
             .static => |*rp| rp.name,
             .dynamic => |*rp| rp.name,
+            .new => unreachable,
         };
         std.log.info("\t{s}: {d} nodes", .{ name, step.nodes.len });
     }
@@ -473,6 +474,7 @@ pub fn execute(self: *RenderGraph, renderer: *Renderer) !void {
             .dynamic => {
                 try vkrp_ptr.dynamic.begin(command_buffer);
             },
+            .new => unreachable,
         }
 
         var j: usize = 0;
@@ -492,6 +494,7 @@ pub fn execute(self: *RenderGraph, renderer: *Renderer) !void {
             .dynamic => {
                 vkrp_ptr.dynamic.end(command_buffer);
             },
+            .new => unreachable,
         }
 
         for (step.image_transitions.items) |transition| {

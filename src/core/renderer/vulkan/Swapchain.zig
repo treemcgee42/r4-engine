@@ -101,6 +101,18 @@ pub fn deinit(self: Swapchain, allocator: std.mem.Allocator, system: *VulkanSyst
     l0vk.vkDestroySwapchainKHR(system.logical_device, self.swapchain, null);
 }
 
+pub const DeinitGenericCtx = struct {
+    swapchain: *Swapchain,
+    system: *VulkanSystem,
+};
+
+pub fn deinit_generic(untyped_ctx: *anyopaque) void {
+    const ctx: *DeinitGenericCtx = @ptrCast(@alignCast(untyped_ctx));
+
+    ctx.swapchain.deinit(ctx.system.allocator, ctx.system);
+    ctx.system.allocator.destroy(ctx);
+}
+
 pub fn recreate_swapchain(
     self: *Swapchain,
     allocator: std.mem.Allocator,

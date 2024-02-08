@@ -9,6 +9,8 @@ const renderpass_module = @import("./RenderPass.zig");
 pub const RenderpassSystem = renderpass_module.RenderpassSystem;
 pub const StaticRenderpassCreateInfo = renderpass_module.StaticRenderpass.CreateInfo;
 pub const DynamicRenderpassCreateInfo = renderpass_module.DynamicRenderpass.CreateInfo;
+pub const DynamicRenderpass2CreateInfo = renderpass_module.DynamicRenderpass2.CreateInfo;
+pub const DynamicRenderpass2Attachment = renderpass_module.DynamicRenderpass2.Attachment;
 pub const Renderpass = renderpass_module.Renderpass;
 pub const RenderpassHandle = renderpass_module.RenderpassHandle;
 pub const RenderpassImage = renderpass_module.Image;
@@ -17,6 +19,7 @@ const l0 = @import("../layer0/l0.zig");
 const l0vk = l0.vulkan;
 const vulkan = @import("vulkan");
 const vma = @import("vma");
+pub const VmaAllocator = vma.VmaAllocator;
 pub const mesh = @import("./mesh.zig");
 // tmp
 const buffer = @import("buffer.zig");
@@ -49,6 +52,8 @@ vma_allocator: vma.VmaAllocator,
 
 tmp_image: ?buffer.ColorImage = null,
 tmp_renderer: ?*Renderer = null,
+
+resource_system: resource.ResourceSystem,
 
 deinit_queue: DeletionQueue,
 
@@ -246,6 +251,10 @@ pub fn init(allocator_: std.mem.Allocator) !VulkanSystem {
 
     // ---
 
+    const resource_system = resource.ResourceSystem.init(allocator_);
+
+    // ---
+
     const deinit_queue = DeletionQueue.init(allocator_);
 
     // ---
@@ -275,11 +284,15 @@ pub fn init(allocator_: std.mem.Allocator) !VulkanSystem {
 
         .vma_allocator = vma_allocator,
 
+        .resource_system = resource_system,
+
         .deinit_queue = deinit_queue,
     };
 }
 
 pub fn deinit(self: *VulkanSystem, allocator_: std.mem.Allocator) void {
+    self.prep_for_deinit();
+
     self.deinit_queue.run();
     self.deinit_queue.deinit();
 
@@ -288,6 +301,8 @@ pub fn deinit(self: *VulkanSystem, allocator_: std.mem.Allocator) void {
     self.pipeline_system.deinit(self);
 
     self.support_details.deinit(allocator_);
+
+    self.resource_system.deinit(self);
 
     vma.vmaDestroyAllocator(self.vma_allocator);
 

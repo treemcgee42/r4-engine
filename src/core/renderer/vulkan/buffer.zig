@@ -1118,6 +1118,104 @@ pub const VulkanImage = struct {
     }
 };
 
+pub fn transition_image_layout_base(
+    image: vulkan.VkImage,
+    command_buffer: vulkan.VkCommandBuffer,
+    old_layout: vulkan.VkImageLayout,
+    new_layout: vulkan.VkImageLayout,
+    mip_levels: u32,
+) VulkanError!void {
+    var barrier = vulkan.VkImageMemoryBarrier{
+        .sType = vulkan.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+        .oldLayout = old_layout,
+        .newLayout = new_layout,
+        .srcQueueFamilyIndex = vulkan.VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = vulkan.VK_QUEUE_FAMILY_IGNORED,
+        .image = image,
+        .subresourceRange = .{
+            .aspectMask = vulkan.VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel = 0,
+            .levelCount = mip_levels,
+            .baseArrayLayer = 0,
+            .layerCount = 1,
+        },
+
+        // Set below.
+        .srcAccessMask = 0,
+        .dstAccessMask = 0,
+    };
+
+    // --- Transition barrier masks.
+
+    var source_stage: vulkan.VkPipelineStageFlags = undefined;
+    var destination_stage: vulkan.VkPipelineStageFlags = undefined;
+
+    if ((old_layout == vulkan.VK_IMAGE_LAYOUT_UNDEFINED) and
+        (new_layout == vulkan.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL))
+    {
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = vulkan.VK_ACCESS_TRANSFER_WRITE_BIT;
+
+        source_stage = vulkan.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        destination_stage = vulkan.VK_PIPELINE_STAGE_TRANSFER_BIT;
+    } else if ((old_layout == vulkan.VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) and
+        (new_layout == vulkan.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL))
+    {
+        barrier.srcAccessMask = vulkan.VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = vulkan.VK_ACCESS_SHADER_READ_BIT;
+
+        source_stage = vulkan.VK_PIPELINE_STAGE_TRANSFER_BIT;
+        destination_stage = vulkan.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    } else if ((old_layout == vulkan.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) and
+        (new_layout == vulkan.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL))
+    {
+        barrier.srcAccessMask = vulkan.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        barrier.dstAccessMask = vulkan.VK_ACCESS_SHADER_READ_BIT;
+
+        source_stage = vulkan.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        destination_stage = vulkan.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    } else if ((old_layout == vulkan.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) and
+        (new_layout == vulkan.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL))
+    {
+        barrier.srcAccessMask = vulkan.VK_ACCESS_SHADER_READ_BIT;
+        barrier.dstAccessMask = vulkan.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+        source_stage = vulkan.VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        destination_stage = vulkan.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    } else if ((old_layout == vulkan.VK_IMAGE_LAYOUT_UNDEFINED) and
+        (new_layout == vulkan.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL))
+    {
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = vulkan.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+        source_stage = vulkan.VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        destination_stage = vulkan.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    } else if ((old_layout == vulkan.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) and
+        (new_layout == vulkan.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR))
+    {
+        barrier.srcAccessMask = vulkan.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        barrier.dstAccessMask = 0;
+
+        source_stage = vulkan.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        destination_stage = vulkan.VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+    } else {
+        @panic("unsupported layout transition");
+    }
+
+    vulkan.vkCmdPipelineBarrier(
+        command_buffer,
+        source_stage,
+        destination_stage,
+        0,
+        0,
+        null,
+        0,
+        null,
+        1,
+        &barrier,
+    );
+}
+
 // ---
 
 pub fn get_binding_description(comptime vertex_type: type) l0vk.VkVertexInputBindingDescription {

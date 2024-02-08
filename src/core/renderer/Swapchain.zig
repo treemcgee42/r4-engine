@@ -41,6 +41,15 @@ pub fn recreate(self: *Swapchain, renderer: *Renderer, window: *Window) !void {
     );
 }
 
-pub fn deinit(self: Swapchain, renderer: *Renderer) void {
-    self.swapchain.deinit(renderer.allocator, &renderer.system);
+pub fn deinit(self: *Swapchain, renderer: *Renderer) void {
+    const deinit_ctx = renderer.system.allocator.create(VulkanSwapchain.DeinitGenericCtx) catch unreachable;
+    deinit_ctx.* = VulkanSwapchain.DeinitGenericCtx{
+        .swapchain = &self.swapchain,
+        .system = &renderer.system,
+    };
+
+    renderer.system.deinit_queue.insert(
+        @ptrCast(deinit_ctx),
+        &VulkanSwapchain.deinit_generic,
+    ) catch unreachable;
 }
