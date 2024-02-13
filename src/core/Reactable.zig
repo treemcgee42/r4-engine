@@ -1,5 +1,7 @@
 const std = @import("std");
 
+pub const CallbackHandle = usize;
+
 pub fn Reactable(comptime T: type) type {
     return struct {
         pub const Callback = struct {
@@ -7,8 +9,6 @@ pub fn Reactable(comptime T: type) type {
             callback_fn: *const fn (data: T, extra_data: ?*anyopaque) void,
             skip: bool = false,
         };
-
-        pub const CallbackHandle = usize;
 
         const Self = @This();
 

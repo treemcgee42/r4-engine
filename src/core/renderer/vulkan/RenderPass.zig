@@ -1091,7 +1091,10 @@ pub const DynamicRenderpass2 = struct {
     depth_attachment_infos: []Attachment,
     depth_attachments: []l0vk.VkRenderingAttachmentInfo,
     clear_color: [4]f32,
-    render_info: l0vk.VkRenderingInfo,
+
+    window: *Window,
+    render_info: *l0vk.VkRenderingInfo,
+    window_resize_callback_handle: usize,
 
     pub const Attachment = struct {
         kind: AttachmentKind,
@@ -1104,13 +1107,27 @@ pub const DynamicRenderpass2 = struct {
     pub const CreateInfo = struct {
         name: []const u8,
         system: *VulkanSystem,
+        window: *Window,
         attachments: []const Attachment,
-        clear_color: [4]f32 = .{ 0, 0, 0, 1 },
-        render_area: RenderArea,
+        clear_color: [4]f32,
     };
 
     pub fn init(info: *const DynamicRenderpass2.CreateInfo) !Self {
         const allocator = info.system.allocator;
+
+        const render_info = try allocator.create(l0vk.VkRenderingInfo);
+
+        const swapchain_extent = info.window.swapchain.swapchain.swapchain_extent;
+        const render_area = RenderArea{
+            .width = swapchain_extent.width,
+            .height = swapchain_extent.height,
+        };
+        const resize_callback_handle = try info.window.window_size_pixels.add_callback(.{
+            .callback_fn = &window_resize_callback,
+            .extra_data = @ptrCast(render_info),
+        });
+
+        // ---
 
         var num_color_attachments: usize = 0;
         var num_depth_attachments: usize = 0;
@@ -1193,10 +1210,10 @@ pub const DynamicRenderpass2 = struct {
 
         const depth_attachment_ptr = if (num_depth_attachments > 0) &depth_attachments[0] else null;
 
-        const render_info = l0vk.VkRenderingInfo{
+        render_info.* = l0vk.VkRenderingInfo{
             .renderArea = l0vk.VkRect2D{
                 .offset = .{ .x = 0, .y = 0 },
-                .extent = .{ .width = info.render_area.width, .height = info.render_area.height },
+                .extent = .{ .width = render_area.width, .height = render_area.height },
             },
 
             .layerCount = 1,
@@ -1212,11 +1229,22 @@ pub const DynamicRenderpass2 = struct {
             .depth_attachment_infos = depth_attachment_infos,
             .depth_attachments = depth_attachments,
             .clear_color = info.clear_color,
+
+            .window = info.window,
             .render_info = render_info,
+            .window_resize_callback_handle = resize_callback_handle,
         };
     }
 
     pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+        // TODO:
+        // Normally the callback should be removed, but since right now we only deinit
+        // renderpasses when the program ends it's okay.
+        //
+        // self.window.window_size_pixels.remove_callback(self.window_resize_callback_handle) catch unreachable;
+
+        allocator.destroy(self.render_info);
+
         allocator.free(self.color_attachment_infos);
         allocator.free(self.color_attachments);
         allocator.free(self.depth_attachment_infos);
@@ -1235,8 +1263,17 @@ pub const DynamicRenderpass2 = struct {
         }
     }
 
+    pub fn window_resize_callback(new_size: Window.WindowSize, data_untyped: ?*anyopaque) void {
+        const ri: *l0vk.VkRenderingInfo = @ptrCast(@alignCast(data_untyped.?));
+
+        ri.renderArea = .{
+            .offset = .{ .x = 0, .y = 0 },
+            .extent = .{ .width = new_size.width, .height = new_size.height },
+        };
+    }
+
     pub fn begin(self: *Self, system: *VulkanSystem, command_buffer: l0vk.VkCommandBuffer) void {
-        l0vk.vkCmdBeginRendering(system.instance, command_buffer, &self.render_info) catch unreachable;
+        l0vk.vkCmdBeginRendering(system.instance, command_buffer, self.render_info) catch unreachable;
     }
 
     pub fn end(self: *Self, system: *VulkanSystem, command_buffer: l0vk.VkCommandBuffer) void {

@@ -22,6 +22,7 @@ pub const Node = struct {
     inputs: std.ArrayList(ResourceDescription),
     outputs: std.ArrayList(ResourceDescription),
 
+    clear_color: [4]f32 = .{ 1, 0, 1, 1 },
     render_fn: RenderFn,
 };
 
@@ -88,6 +89,7 @@ pub const RenderGraph = struct {
                 .inputs = std.ArrayList(ResourceDescription).init(self.allocator),
                 .outputs = std.ArrayList(ResourceDescription).init(self.allocator),
                 .render_fn = nodes[i].render_fn,
+                .clear_color = nodes[i].clear_color,
             };
 
             try node.inputs.appendSlice(nodes[i].inputs.items);
@@ -229,15 +231,13 @@ pub const RenderGraph = struct {
     }
 
     fn compile_create_renderpasses(self: *RenderGraph, system: *VulkanSystem, renderer: *Renderer, window: *Window) !void {
+        _ = renderer;
         var i: usize = 0;
         while (i < self.nodes.items.len) : (i += 1) {
             const node_ptr = &self.nodes.items[i];
 
             var attachments = std.ArrayList(VulkanSystem.DynamicRenderpass2Attachment).init(self.allocator);
             defer attachments.deinit();
-
-            var render_area_width: u32 = undefined;
-            var render_area_height: u32 = undefined;
 
             var j: usize = 0;
             while (j < node_ptr.outputs.items.len) : (j += 1) {
@@ -250,12 +250,6 @@ pub const RenderGraph = struct {
 
                 const attachment_kind = system.resource_system.get_attachment_kind(output_name) catch unreachable;
                 const attachment_format = system.resource_system.get_attachment_format(output_name) catch unreachable;
-
-                if (attachment_kind == .color or attachment_kind == .color_final) {
-                    const dims = try system.resource_system.get_width_and_height(output_name, renderer, window);
-                    render_area_width = dims.width;
-                    render_area_height = dims.height;
-                }
 
                 var image_view: l0vk.VkImageView = undefined;
                 if (attachment_kind != .color_final) {
@@ -272,8 +266,9 @@ pub const RenderGraph = struct {
             const create_info = VulkanSystem.DynamicRenderpass2CreateInfo{
                 .name = node_ptr.name,
                 .system = system,
+                .window = window,
                 .attachments = attachments.items,
-                .render_area = .{ .width = render_area_width, .height = render_area_height },
+                .clear_color = node_ptr.clear_color,
             };
             const renderpass = try system.renderpass_system.create_new_renderpass(&create_info);
             self.node_data.items[i].renderpass = renderpass;

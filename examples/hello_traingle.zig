@@ -12,10 +12,11 @@ const ResourceDescription = r4_core.rendergraph.ResourceDescription;
 
 pub const MainPass = struct {
     core: *Core,
+    window: *Window,
     pipeline: l0vk.VkPipeline,
     pipeline_layout: l0vk.VkPipelineLayout,
 
-    pub fn init(core: *Core) !MainPass {
+    pub fn init(core: *Core, window: *Window) !MainPass {
         const pipeline_and_layout = try r4_core.pipeline.build_pipeline_base(
             &core.renderer,
             "shaders/compiled_output/triangle.vert.spv",
@@ -26,6 +27,7 @@ pub const MainPass = struct {
 
         return MainPass{
             .core = core,
+            .window = window,
             .pipeline = pipeline_and_layout.pipeline,
             .pipeline_layout = pipeline_and_layout.pipeline_layout,
         };
@@ -67,12 +69,14 @@ pub const MainPass = struct {
             self.pipeline,
         );
 
-        const swapchain = self.core.renderer.current_frame_context.?.window.swapchain;
+        const size = self.window.size();
+        _ = size;
+
         const viewport = vulkan.VkViewport{
             .x = 0.0,
             .y = 0.0,
-            .width = @floatFromInt(swapchain.swapchain.swapchain_extent.width), // TODO
-            .height = @floatFromInt(swapchain.swapchain.swapchain_extent.height),
+            .width = @floatFromInt(self.window.swapchain.swapchain.swapchain_extent.width),
+            .height = @floatFromInt(self.window.swapchain.swapchain.swapchain_extent.height),
             .minDepth = 0.0,
             .maxDepth = 1.0,
         };
@@ -80,7 +84,7 @@ pub const MainPass = struct {
 
         const scissor = vulkan.VkRect2D{
             .offset = .{ .x = 0, .y = 0 },
-            .extent = swapchain.swapchain.swapchain_extent,
+            .extent = self.window.swapchain.swapchain.swapchain_extent,
         };
         vulkan.vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 
@@ -101,7 +105,7 @@ pub fn main() !void {
     const window_init_info = Window.WindowInitInfo{};
     var window = try Window.init(&core, &window_init_info);
     defer window.deinit(&core);
-    window.setup_resize();
+    try window.setup_resize(&core.renderer);
 
     // ---
 
@@ -144,13 +148,14 @@ pub fn main() !void {
             .function = &MainPass.render,
             .data = &main_pass,
         },
+        .clear_color = .{ 0.3, 0.1, 0.2, 1.0 },
     };
 
     var nodes = [_]rendergraph.Node{node};
     try rg.set_nodes_from_slice(&nodes);
     try rg.compile(&core.renderer.system, &core.renderer, &window);
 
-    main_pass = try MainPass.init(&core);
+    main_pass = try MainPass.init(&core, &window);
     defer main_pass.deinit(&core);
 
     while (!window.should_close()) {

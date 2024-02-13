@@ -13,8 +13,14 @@ const VulkanSystem = @import("renderer/vulkan/VulkanSystem.zig");
 const Scene = @import("renderer/Scene.zig");
 const math = @import("math");
 const gltf_loader = @import("renderer/gltf_loader/gltf_loader.zig");
+const Reactable = @import("Reactable.zig").Reactable;
 
 const Window = @This();
+
+/// Window size in device-independent units.
+window_size: Reactable(WindowSize),
+/// Window size in pixels (accounts for DPI).
+window_size_pixels: Reactable(WindowSize),
 
 window: *glfw.GLFWwindow,
 surface: Surface,
@@ -44,6 +50,13 @@ pub const WindowInitError = error{
 pub fn init(core: *Core, info: *const WindowInitInfo) WindowInitError!Window {
     // ---
 
+    const size_ = Reactable(WindowSize).init_with_data(
+        core.allocator,
+        .{ .width = info.width, .height = info.height },
+    );
+
+    // ---
+
     glfw.glfwWindowHint(glfw.GLFW_CLIENT_API, glfw.GLFW_NO_API);
     glfw.glfwWindowHint(glfw.GLFW_RESIZABLE, glfw.GLFW_TRUE);
 
@@ -64,6 +77,16 @@ pub fn init(core: *Core, info: *const WindowInitInfo) WindowInitError!Window {
 
     // ---
 
+    var pixel_width: c_int = 0;
+    var pixel_height: c_int = 0;
+    glfw.glfwGetFramebufferSize(maybe_window, &pixel_width, &pixel_height);
+    const size_pixels = Reactable(WindowSize).init_with_data(
+        core.allocator,
+        .{ .width = @intCast(pixel_width), .height = @intCast(pixel_height) },
+    );
+
+    // ---
+
     const swapchain = Swapchain.init(&core.renderer, &surface) catch {
         return WindowInitError.swapchain_creation_failed;
     };
@@ -71,6 +94,9 @@ pub fn init(core: *Core, info: *const WindowInitInfo) WindowInitError!Window {
     // ---
 
     return .{
+        .window_size = size_,
+        .window_size_pixels = size_pixels,
+
         .window = maybe_window.?,
         .surface = surface,
 
@@ -376,7 +402,10 @@ pub fn run_main_loop(self: *Window, core: *Core) !void {
 }
 
 pub fn deinit(self: *Window, core: *Core) void {
-    self.swapchain.deinit(&core.renderer);
+    self.swapchain.deinit(&core.renderer, self);
+
+    self.window_size.deinit();
+    self.window_size_pixels.deinit();
 
     self.surface.deinit(&core.renderer);
     glfw.glfwDestroyWindow(self.window);
@@ -386,16 +415,22 @@ pub fn add_renderpass(self: *Window, render_pass: RenderPass) void {
     self.render_passes.append(render_pass) catch unreachable;
 }
 
-pub fn setup_resize(self: *Window) void {
+pub fn setup_resize(self: *Window, renderer: *Renderer) !void {
     glfw.glfwSetWindowUserPointer(self.window, self);
     _ = glfw.glfwSetFramebufferSizeCallback(self.window, window_resize_callback);
+
+    try self.swapchain.register_recreate_callback_for_window_size(renderer, self);
 }
 
 fn window_resize_callback(window: ?*glfw.GLFWwindow, width: c_int, height: c_int) callconv(.C) void {
-    _ = height;
-    _ = width;
     var app: *Window = @ptrCast(@alignCast(glfw.glfwGetWindowUserPointer(window)));
     app.framebuffer_resized = true;
+    app.window_size.set(.{ .width = @intCast(width), .height = @intCast(height) });
+
+    var pixels_width: c_int = 0;
+    var pixels_height: c_int = 0;
+    glfw.glfwGetFramebufferSize(window, &pixels_width, &pixels_height);
+    app.window_size_pixels.set(.{ .width = @intCast(pixels_width), .height = @intCast(pixels_height) });
 }
 
 pub fn recreate_swapchain_callback(self: *Window, renderer: *Renderer) !void {
@@ -412,7 +447,7 @@ pub const WindowSize = struct {
 /// Returns (width, height).
 pub fn size(self: *const Window) WindowSize {
     return .{
-        .width = self.swapchain.swapchain.swapchain_extent.width,
-        .height = self.swapchain.swapchain.swapchain_extent.height,
+        .width = self.window_size.data.width,
+        .height = self.window_size.data.height,
     };
 }

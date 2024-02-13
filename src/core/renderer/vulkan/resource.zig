@@ -83,7 +83,6 @@ pub const ResourceDescription = struct {
         kind: AttachmentKind,
         format: l0vk.VkFormat,
         resolution: Resolution,
-        clear_color: [4]f32 = .{ 1, 0, 1, 1 },
     };
 };
 
