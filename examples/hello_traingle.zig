@@ -17,12 +17,15 @@ pub const MainPass = struct {
     pipeline_layout: l0vk.VkPipelineLayout,
 
     pub fn init(core: *Core, window: *Window) !MainPass {
-        const pipeline_and_layout = try r4_core.pipeline.build_pipeline_base(
-            &core.renderer,
-            "shaders/compiled_output/triangle.vert.spv",
-            "shaders/compiled_output/triangle.frag.spv",
-            "main",
-            true,
+        const pipeline_create_info = r4_core.pipeline.PipelineCreateInfo{
+            .vertex_shader_filename = "shaders/compiled_output/triangle.vert.spv",
+            .fragment_shader_filename = "shaders/compiled_output/triangle.frag.spv",
+            .renderpass_name = "main",
+        };
+        const pipeline_and_layout = try core.renderer.system.pipeline_system.create(
+            &core.renderer.system,
+            "main pass pipeline",
+            pipeline_create_info,
         );
 
         return MainPass{
@@ -33,33 +36,6 @@ pub const MainPass = struct {
         };
     }
 
-    pub fn deinit(self: *MainPass, core: *Core) void {
-        const ctx = self.core.allocator.create(DeinitVulkanCtx) catch unreachable;
-        ctx.* = .{
-            .pipeline = self.pipeline,
-            .pipeline_layout = self.pipeline_layout,
-            .core = core,
-        };
-
-        core.renderer.system.deinit_queue.insert(
-            @ptrCast(ctx),
-            &deinit_vulkan_callback,
-        ) catch unreachable;
-    }
-
-    pub const DeinitVulkanCtx = struct {
-        pipeline: l0vk.VkPipeline,
-        pipeline_layout: l0vk.VkPipelineLayout,
-        core: *Core,
-    };
-
-    pub fn deinit_vulkan_callback(ctx_untyped: *anyopaque) void {
-        const ctx: *DeinitVulkanCtx = @ptrCast(@alignCast(ctx_untyped));
-        l0vk.vkDestroyPipeline(ctx.core.renderer.system.logical_device, ctx.pipeline, null);
-        l0vk.vkDestroyPipelineLayout(ctx.core.renderer.system.logical_device, ctx.pipeline_layout, null);
-        ctx.core.renderer.system.allocator.destroy(ctx);
-    }
-
     pub fn render(self_untyped: *anyopaque, command_buffer: l0vk.VkCommandBuffer) anyerror!void {
         const self: *MainPass = @ptrCast(@alignCast(self_untyped));
 
@@ -68,9 +44,6 @@ pub const MainPass = struct {
             vulkan.VK_PIPELINE_BIND_POINT_GRAPHICS,
             self.pipeline,
         );
-
-        const size = self.window.size();
-        _ = size;
 
         const viewport = vulkan.VkViewport{
             .x = 0.0,
@@ -102,7 +75,8 @@ pub fn main() !void {
     var core = try Core.init(allocator);
     defer core.deinit();
 
-    const window_init_info = Window.WindowInitInfo{};
+    var window_init_info = Window.WindowInitInfo{};
+    window_init_info.name = "hello triangle";
     var window = try Window.init(&core, &window_init_info);
     defer window.deinit(&core);
     try window.setup_resize(&core.renderer);
@@ -148,7 +122,7 @@ pub fn main() !void {
             .function = &MainPass.render,
             .data = &main_pass,
         },
-        .clear_color = .{ 0.3, 0.1, 0.2, 1.0 },
+        .clear_color = .{ 0.0, 0.5, 0.5, 1.0 },
     };
 
     var nodes = [_]rendergraph.Node{node};
@@ -156,7 +130,6 @@ pub fn main() !void {
     try rg.compile(&core.renderer.system, &core.renderer, &window);
 
     main_pass = try MainPass.init(&core, &window);
-    defer main_pass.deinit(&core);
 
     while (!window.should_close()) {
         try rg.execute(&core.renderer, &window);
