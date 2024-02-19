@@ -39,6 +39,7 @@ fn topology_test_helper(topology_json: []const u8) !void {
             .name = test_nodes.value[i].name,
             .inputs = std.ArrayList(ResourceDescription).init(allocator),
             .outputs = std.ArrayList(ResourceDescription).init(allocator),
+            .render_fn = undefined,
         };
 
         var j: usize = 0;
@@ -163,6 +164,7 @@ fn topology_test_helper(topology_json: []const u8) !void {
     // For each edge, ensure that the index of the source is before the index of the endpoint.
 
     try graph.compile_sort();
+    std.debug.print("RG: {}\n", .{graph});
 
     var edge_iter = edges.keyIterator();
     while (edge_iter.next()) |key| {
@@ -280,6 +282,26 @@ test "rendergraph-compile-topology-2" {
         \\    "name": "Node6",
         \\    "inputs": ["2"],
         \\    "outputs": ["4"]
+        \\  }
+        \\]
+    ;
+
+    try topology_test_helper(topo_json);
+}
+
+// 1 -> 2
+test "rendergraph-compile-topology-3" {
+    const topo_json =
+        \\[
+        \\  {
+        \\    "name": "Node1",
+        \\    "inputs": [],
+        \\    "outputs": ["1"]
+        \\  },
+        \\  {
+        \\    "name": "Node2",
+        \\    "inputs": ["1"],
+        \\    "outputs": ["0"]
         \\  }
         \\]
     ;

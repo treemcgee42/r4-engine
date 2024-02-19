@@ -122,12 +122,12 @@ pub fn build(b: *std.Build) void {
 
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
-    var tests = b.addTest(.{
+    const tests = b.addTest(.{
         .root_source_file = .{ .path = "tests/tests.zig" },
         .target = target,
         .optimize = optimize,
     });
-    tests.addModule("r4_core", r4_core_module);
+    link_r4_core(b, target, tests, r4_core_module);
 
     const run_tests = b.addRunArtifact(tests);
 
@@ -192,6 +192,55 @@ fn build_cimgui(b: *std.Build, target: std.zig.CrossTarget) *std.build.Step.Comp
     return cimgui;
 }
 
+fn link_r4_core(
+    b: *std.Build,
+    target: std.zig.CrossTarget,
+    exe: *std.Build.Step.Compile,
+    r4_core: *std.build.Module,
+) void {
+    exe.linkLibC();
+    exe.linkLibCpp();
+
+    exe.linkFramework("Metal");
+    exe.linkFramework("Foundation");
+    exe.linkFramework("QuartzCore");
+    exe.linkFramework("IOKit");
+    exe.linkFramework("IOSurface");
+    exe.linkFramework("Cocoa");
+    exe.linkFramework("CoreVideo");
+
+    exe.addLibraryPath(.{ .path = "/opt/homebrew/opt/glfw/lib" });
+    exe.linkSystemLibrary("glfw.3.3");
+    exe.addIncludePath(.{ .path = "/opt/homebrew/opt/glfw/include" });
+
+    exe.addLibraryPath(.{ .path = "/Users/ogmalladii/VulkanSDK/1.3.261.1/macOS/lib" });
+    // exe.linkSystemLibrary("vulkan.1");
+    exe.linkSystemLibrary("vulkan.1.3.261");
+    exe.addIncludePath(.{ .path = "/Users/ogmalladii/VulkanSDK/1.3.261.1/macOS/include" });
+
+    exe.addLibraryPath(.{ .path = "./external/cglm-0.9.1/build" });
+    exe.linkSystemLibrary("cglm");
+    exe.addIncludePath(.{ .path = "./external/cglm-0.9.1/include" }); // TODO: necessary?
+
+    exe.addIncludePath(.{ .path = "./external/vma" });
+    exe.addCSourceFile(.{
+        .file = .{ .path = "./external/vma/vk_mem_alloc_impl.cpp" },
+        .flags = &[_][]const u8{},
+    });
+
+    exe.addIncludePath(.{ .path = "./external/cgltf" });
+    exe.addCSourceFile(.{
+        .file = .{ .path = "./external/cgltf/cgltf_impl.c" },
+        .flags = &[_][]const u8{},
+    });
+
+    exe.addIncludePath(.{ .path = "./external/cimgui" });
+    exe.addIncludePath(.{ .path = "./external/cimgui/generator/output" });
+    exe.linkLibrary(build_cimgui(b, target));
+
+    exe.addModule("r4_core", r4_core);
+}
+
 fn build_examples(
     b: *std.Build,
     target: std.zig.CrossTarget,
@@ -206,6 +255,7 @@ fn build_examples(
     const examples = [_]Example{
         .{ .name = "hello_triangle", .path = "./examples/hello_triangle.zig" },
         .{ .name = "hello_triangle_imgui", .path = "./examples/hello_triangle_imgui.zig" },
+        .{ .name = "hello_triangle_offscreen", .path = "./examples/hello_triangle_offscreen.zig" },
     };
 
     const build_all_examples = b.option(
@@ -230,47 +280,7 @@ fn build_examples(
                 .optimize = optimize,
             });
 
-            exe.linkLibC();
-            exe.linkLibCpp();
-
-            exe.linkFramework("Metal");
-            exe.linkFramework("Foundation");
-            exe.linkFramework("QuartzCore");
-            exe.linkFramework("IOKit");
-            exe.linkFramework("IOSurface");
-            exe.linkFramework("Cocoa");
-            exe.linkFramework("CoreVideo");
-
-            exe.addLibraryPath(.{ .path = "/opt/homebrew/opt/glfw/lib" });
-            exe.linkSystemLibrary("glfw.3.3");
-            exe.addIncludePath(.{ .path = "/opt/homebrew/opt/glfw/include" });
-
-            exe.addLibraryPath(.{ .path = "/Users/ogmalladii/VulkanSDK/1.3.261.1/macOS/lib" });
-            // exe.linkSystemLibrary("vulkan.1");
-            exe.linkSystemLibrary("vulkan.1.3.261");
-            exe.addIncludePath(.{ .path = "/Users/ogmalladii/VulkanSDK/1.3.261.1/macOS/include" });
-
-            exe.addLibraryPath(.{ .path = "./external/cglm-0.9.1/build" });
-            exe.linkSystemLibrary("cglm");
-            exe.addIncludePath(.{ .path = "./external/cglm-0.9.1/include" }); // TODO: necessary?
-
-            exe.addIncludePath(.{ .path = "./external/vma" });
-            exe.addCSourceFile(.{
-                .file = .{ .path = "./external/vma/vk_mem_alloc_impl.cpp" },
-                .flags = &[_][]const u8{},
-            });
-
-            exe.addIncludePath(.{ .path = "./external/cgltf" });
-            exe.addCSourceFile(.{
-                .file = .{ .path = "./external/cgltf/cgltf_impl.c" },
-                .flags = &[_][]const u8{},
-            });
-
-            exe.addIncludePath(.{ .path = "./external/cimgui" });
-            exe.addIncludePath(.{ .path = "./external/cimgui/generator/output" });
-            exe.linkLibrary(build_cimgui(b, target));
-
-            exe.addModule("r4_core", r4_core);
+            link_r4_core(b, target, exe, r4_core);
 
             b.installArtifact(exe);
         }
