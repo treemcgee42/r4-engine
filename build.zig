@@ -15,23 +15,12 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
-    const exe = b.addExecutable(.{
-        .name = "game_engine",
-        // In this case the main source file is merely a path, however, in more
-        // complicated build scripts, this could be a generated file.
-        .root_source_file = .{ .path = "examples/hello_traingle.zig" },
-        .target = target,
-        .optimize = optimize,
-    });
-
-    exe.linkLibC();
-    exe.linkLibCpp();
+    // TODO: separate function to build r4_core module
 
     // debug utils
     const debug_utils_module = b.createModule(.{
         .source_file = .{ .path = "src/debug_utils/lib.zig" },
     });
-    exe.addModule("debug_utils", debug_utils_module);
 
     // ecs
     const ecs_module = b.createModule(.{
@@ -43,62 +32,45 @@ pub fn build(b: *std.Build) void {
             },
         },
     });
-    exe.addModule("ecs", ecs_module);
 
     // GLFW.
-    const glfw_module = link_glfw(b, exe, true).?;
+    const glfw_module = b.createModule(.{
+        .source_file = .{ .path = "src/c/glfw.zig" },
+    });
 
     // CGLM.
-    exe.addLibraryPath(.{ .path = "./external/cglm-0.9.1/build" });
-    exe.linkSystemLibrary("cglm");
-    exe.addIncludePath(.{ .path = "./external/cglm-0.9.1/include" });
+
     const cglm_module = b.createModule(.{
         .source_file = .{ .path = "src/c/cglm.zig" },
     });
 
     // math
-    const math_module = b.createModule(.{ .source_file = .{ .path = "src/math.zig" }, .dependencies = &.{
-        .{
-            .name = "cglm",
-            .module = cglm_module,
+    const math_module = b.createModule(.{
+        .source_file = .{ .path = "src/math.zig" },
+        .dependencies = &.{
+            .{
+                .name = "cglm",
+                .module = cglm_module,
+            },
         },
-    } });
+    });
 
     // VULKAN.
-    exe.linkFramework("Metal");
-    exe.linkFramework("Foundation");
-    exe.linkFramework("QuartzCore");
-    exe.linkFramework("IOKit");
-    exe.linkFramework("IOSurface");
-    exe.linkFramework("Cocoa");
-    exe.linkFramework("CoreVideo");
-
-    const vulkan_module = link_vulkan(b, exe, true).?;
+    const vulkan_module = b.createModule(.{
+        .source_file = .{ .path = "src/c/vulkan.zig" },
+    });
 
     // VMA
-    exe.addIncludePath(.{ .path = "./external/vma" });
-    exe.addCSourceFile(.{
-        .file = .{ .path = "./external/vma/vk_mem_alloc_impl.cpp" },
-        .flags = &[_][]const u8{},
-    });
     const vma_module = b.createModule(.{
         .source_file = .{ .path = "src/c/vma.zig" },
     });
 
     // CGLTF
-    exe.addIncludePath(.{ .path = "./external/cgltf" });
-    exe.addCSourceFile(.{
-        .file = .{ .path = "./external/cgltf/cgltf_impl.c" },
-        .flags = &[_][]const u8{},
-    });
     const cgltf_module = b.createModule(.{
         .source_file = .{ .path = "src/c/cgltf.zig" },
     });
 
     // CIMGUI.
-    exe.addIncludePath(.{ .path = "./external/cimgui" });
-    exe.addIncludePath(.{ .path = "./external/cimgui/generator/output" });
-    exe.linkLibrary(build_cimgui(b, target));
     const cimgui_module = b.createModule(.{
         .source_file = .{ .path = "src/c/cimgui.zig" },
     });
@@ -145,35 +117,8 @@ pub fn build(b: *std.Build) void {
             },
         },
     });
-    exe.addModule("r4_core", r4_core_module);
 
-    // This declares intent for the executable to be installed into the
-    // standard location when the user invokes the "install" step (the default
-    // step when running `zig build`).
-    b.installArtifact(exe);
-
-    // This *creates* a Run step in the build graph, to be executed when another
-    // step is evaluated that depends on it. The next line below will establish
-    // such a dependency.
-    const run_cmd = b.addRunArtifact(exe);
-
-    // By making the run step depend on the install step, it will be run from the
-    // installation directory rather than directly from within the cache directory.
-    // This is not necessary, however, if the application depends on other installed
-    // files, this ensures they will be present and in the expected location.
-    run_cmd.step.dependOn(b.getInstallStep());
-
-    // This allows the user to pass arguments to the application in the build
-    // command itself, like this: `zig build run -- arg1 arg2 etc`
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
-
-    // This creates a build step. It will be visible in the `zig build --help` menu,
-    // and can be selected like this: `zig build run`
-    // This will evaluate the `run` step rather than the default, which is "install".
-    const run_step = b.step("run", "Run the app");
-    run_step.dependOn(&run_cmd.step);
+    build_examples(b, target, optimize, r4_core_module);
 
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
@@ -191,38 +136,6 @@ pub fn build(b: *std.Build) void {
     // running the unit tests.
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);
-}
-
-fn link_glfw(b: *std.Build, exe: *std.build.Step.Compile, create_module: bool) ?*std.Build.Module {
-    exe.addLibraryPath(.{ .path = "/opt/homebrew/opt/glfw/lib" });
-    exe.linkSystemLibrary("glfw.3.3");
-    exe.addIncludePath(.{ .path = "/opt/homebrew/opt/glfw/include" });
-
-    if (create_module) {
-        const glfw_module = b.createModule(.{
-            .source_file = .{ .path = "src/c/glfw.zig" },
-        });
-        return glfw_module;
-    }
-
-    return null;
-}
-
-fn link_vulkan(b: *std.Build, exe: *std.build.Step.Compile, add_module: bool) ?*std.build.Module {
-    exe.addLibraryPath(.{ .path = "/Users/ogmalladii/VulkanSDK/1.3.261.1/macOS/lib" });
-    // exe.linkSystemLibrary("vulkan.1");
-    exe.linkSystemLibrary("vulkan.1.3.261");
-    exe.addIncludePath(.{ .path = "/Users/ogmalladii/VulkanSDK/1.3.261.1/macOS/include" });
-
-    if (add_module) {
-        const vulkan_module = b.createModule(.{
-            .source_file = .{ .path = "src/c/vulkan.zig" },
-        });
-
-        return vulkan_module;
-    }
-
-    return null;
 }
 
 fn build_cimgui(b: *std.Build, target: std.zig.CrossTarget) *std.build.Step.Compile {
@@ -248,8 +161,14 @@ fn build_cimgui(b: *std.Build, target: std.zig.CrossTarget) *std.build.Step.Comp
     cimgui.linkLibC();
     cimgui.linkLibCpp();
 
-    _ = link_glfw(b, cimgui, false);
-    _ = link_vulkan(b, cimgui, false);
+    cimgui.addLibraryPath(.{ .path = "/opt/homebrew/opt/glfw/lib" });
+    cimgui.linkSystemLibrary("glfw.3.3");
+    cimgui.addIncludePath(.{ .path = "/opt/homebrew/opt/glfw/include" });
+
+    cimgui.addLibraryPath(.{ .path = "/Users/ogmalladii/VulkanSDK/1.3.261.1/macOS/lib" });
+    // exe.linkSystemLibrary("vulkan.1");
+    cimgui.linkSystemLibrary("vulkan.1.3.261");
+    cimgui.addIncludePath(.{ .path = "/Users/ogmalladii/VulkanSDK/1.3.261.1/macOS/include" });
 
     cimgui.addIncludePath(.{ .path = dir });
     cimgui.addIncludePath(.{ .path = dir ++ "/imgui" });
@@ -271,4 +190,88 @@ fn build_cimgui(b: *std.Build, target: std.zig.CrossTarget) *std.build.Step.Comp
     }
 
     return cimgui;
+}
+
+fn build_examples(
+    b: *std.Build,
+    target: std.zig.CrossTarget,
+    optimize: std.builtin.OptimizeMode,
+    r4_core: *std.build.Module,
+) void {
+    const Example = struct {
+        name: []const u8,
+        path: []const u8,
+    };
+
+    const examples = [_]Example{
+        .{ .name = "hello_triangle", .path = "./examples/hello_triangle.zig" },
+    };
+
+    const build_all_examples = b.option(
+        bool,
+        "build_all_examples",
+        "Build all examples",
+    ) orelse false;
+
+    inline for (examples) |example| {
+        const build_option_name = "build_" ++ example.name ++ "_example";
+        const build_this_example = b.option(
+            bool,
+            build_option_name,
+            "Build the example '" ++ example.name ++ "'",
+        ) orelse false;
+
+        if (build_this_example or build_all_examples) {
+            const exe = b.addExecutable(.{
+                .name = example.name,
+                .root_source_file = .{ .path = example.path },
+                .target = target,
+                .optimize = optimize,
+            });
+
+            exe.linkLibC();
+            exe.linkLibCpp();
+
+            exe.linkFramework("Metal");
+            exe.linkFramework("Foundation");
+            exe.linkFramework("QuartzCore");
+            exe.linkFramework("IOKit");
+            exe.linkFramework("IOSurface");
+            exe.linkFramework("Cocoa");
+            exe.linkFramework("CoreVideo");
+
+            exe.addLibraryPath(.{ .path = "/opt/homebrew/opt/glfw/lib" });
+            exe.linkSystemLibrary("glfw.3.3");
+            exe.addIncludePath(.{ .path = "/opt/homebrew/opt/glfw/include" });
+
+            exe.addLibraryPath(.{ .path = "/Users/ogmalladii/VulkanSDK/1.3.261.1/macOS/lib" });
+            // exe.linkSystemLibrary("vulkan.1");
+            exe.linkSystemLibrary("vulkan.1.3.261");
+            exe.addIncludePath(.{ .path = "/Users/ogmalladii/VulkanSDK/1.3.261.1/macOS/include" });
+
+            exe.addLibraryPath(.{ .path = "./external/cglm-0.9.1/build" });
+            exe.linkSystemLibrary("cglm");
+            exe.addIncludePath(.{ .path = "./external/cglm-0.9.1/include" }); // TODO: necessary?
+
+            exe.addIncludePath(.{ .path = "./external/vma" });
+            exe.addCSourceFile(.{
+                .file = .{ .path = "./external/vma/vk_mem_alloc_impl.cpp" },
+                .flags = &[_][]const u8{},
+            });
+
+            exe.addIncludePath(.{ .path = "./external/cgltf" });
+            exe.addCSourceFile(.{
+                .file = .{ .path = "./external/cgltf/cgltf_impl.c" },
+                .flags = &[_][]const u8{},
+            });
+
+            exe.addIncludePath(.{ .path = "./external/cimgui" });
+            exe.addIncludePath(.{ .path = "./external/cimgui/generator/output" });
+            exe.linkLibrary(build_cimgui(b, target));
+
+            exe.addModule("r4_core", r4_core);
+
+            b.installArtifact(exe);
+        }
+    }
 }

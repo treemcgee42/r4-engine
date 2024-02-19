@@ -20,12 +20,13 @@ tasks:
       - for: sources
         cmd: "{{.GLSLC}} {{.ITEM}} -o {{.OUTPUT_DIR}}/{{.ITEM}}.spv"
 
-  build:
+  build-example:
     vars:
       OPTIMIZATION: '{{default "Debug" .OPTIMIZATION}}'
+      EXAMPLE: '{{.EXAMPLE}}'
     cmds:
       - task: compile-shaders
-      - "{{.ZIGC}} build -Doptimize={{.OPTIMIZATION}}" 
+      - "{{.ZIGC}} build -Doptimize={{.OPTIMIZATION}} -Dbuild_{{.EXAMPLE}}_example" 
     env:
       VK_ICD_FILENAMES: "{{.VULKAN_SDK}}/macOS/share/vulkan/icd.d/MoltenVK_icd.json"
       VK_LAYER_PATH: "{{.VULKAN_SDK}}/macOS/share/vulkan/explicit_layer.d"
@@ -37,7 +38,7 @@ tasks:
 
   run:
     cmds:
-      - "zig-out/bin/game_engine"
+      - "zig-out/bin/{{.CLI_ARGS}}"
     env:
       DYLD_LIBRARY_PATH: "{{.VULKAN_SDK}}/macOS/lib:/opt/homebrew/opt/glfw/lib:/opt/homebrew/opt/glm/lib:/Users/ogmalladii/dev/zig/game_engine/external/cglm-0.9.1/build"
         
