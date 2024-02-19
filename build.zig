@@ -205,6 +205,7 @@ fn build_examples(
 
     const examples = [_]Example{
         .{ .name = "hello_triangle", .path = "./examples/hello_triangle.zig" },
+        .{ .name = "hello_triangle_imgui", .path = "./examples/hello_triangle_imgui.zig" },
     };
 
     const build_all_examples = b.option(

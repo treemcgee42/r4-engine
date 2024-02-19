@@ -124,6 +124,7 @@ pub fn main() !void {
             .data = &main_pass,
         },
         .clear_color = .{ 0.0, 0.5, 0.5, 1.0 },
+        .imgui_enabled = true,
     };
 
     var nodes = [_]rendergraph.Node{node};
@@ -133,6 +134,17 @@ pub fn main() !void {
     main_pass = try MainPass.init(&core, &window);
 
     while (!window.should_close()) {
+        cimgui.ImGui_ImplVulkan_NewFrame();
+        cimgui.ImGui_ImplGlfw_NewFrame();
+        cimgui.igNewFrame();
+
+        var open = true;
+        cimgui.igShowDemoWindow(&open);
+
+        cimgui.igRender();
+
+        // ---
+
         try rg.execute(&core.renderer, &window);
     }
 }
