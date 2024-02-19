@@ -39,7 +39,7 @@ pub const RenderpassSystem = struct {
             switch (self.renderpasses.items[i]) {
                 .static => |*rp| rp.deinit(system.allocator, system),
                 .dynamic => |*rp| rp.deinit(system),
-                .new => |*rp| rp.deinit(system.allocator),
+                .new => |*rp| rp.deinit(system),
             }
         }
 
@@ -1091,6 +1091,7 @@ pub const DynamicRenderpass2 = struct {
     depth_attachment_infos: []Attachment,
     depth_attachments: []l0vk.VkRenderingAttachmentInfo,
     clear_color: [4]f32,
+    imgui_info: ImguiInfo,
 
     window: *Window,
     render_info: *l0vk.VkRenderingInfo,
@@ -1102,6 +1103,10 @@ pub const DynamicRenderpass2 = struct {
         image_view: l0vk.VkImageView,
     };
 
+    const ImguiInfo = union(enum) { disabled, enabled: struct {
+        descriptor_pool: l0vk.VkDescriptorPool,
+    } };
+
     const Self = @This();
 
     pub const CreateInfo = struct {
@@ -1110,6 +1115,7 @@ pub const DynamicRenderpass2 = struct {
         window: *Window,
         attachments: []const Attachment,
         clear_color: [4]f32,
+        enable_imgui: bool,
     };
 
     pub fn init(info: *const DynamicRenderpass2.CreateInfo) !Self {
@@ -1210,6 +1216,11 @@ pub const DynamicRenderpass2 = struct {
 
         const depth_attachment_ptr = if (num_depth_attachments > 0) &depth_attachments[0] else null;
 
+        var imgui_info = ImguiInfo{ .disabled = {} };
+        if (info.enable_imgui) {
+            imgui_info = try setup_imgui(info.system, info.window, 0);
+        }
+
         render_info.* = l0vk.VkRenderingInfo{
             .renderArea = l0vk.VkRect2D{
                 .offset = .{ .x = 0, .y = 0 },
@@ -1229,6 +1240,7 @@ pub const DynamicRenderpass2 = struct {
             .depth_attachment_infos = depth_attachment_infos,
             .depth_attachments = depth_attachments,
             .clear_color = info.clear_color,
+            .imgui_info = imgui_info,
 
             .window = info.window,
             .render_info = render_info,
@@ -1236,12 +1248,24 @@ pub const DynamicRenderpass2 = struct {
         };
     }
 
-    pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *Self, system: *VulkanSystem) void {
         // TODO:
         // Normally the callback should be removed, but since right now we only deinit
         // renderpasses when the program ends it's okay.
         //
         // self.window.window_size_pixels.remove_callback(self.window_resize_callback_handle) catch unreachable;
+
+        switch (self.imgui_info) {
+            .disabled => {},
+            .enabled => {
+                l0vk.vkDestroyDescriptorPool(system.logical_device, self.imgui_info.enabled.descriptor_pool, null);
+                cimgui.ImGui_ImplVulkan_Shutdown();
+                cimgui.ImGui_ImplGlfw_Shutdown();
+                cimgui.igDestroyContext(null);
+            },
+        }
+
+        const allocator = system.allocator;
 
         allocator.destroy(self.render_info);
 
@@ -1249,6 +1273,137 @@ pub const DynamicRenderpass2 = struct {
         allocator.free(self.color_attachments);
         allocator.free(self.depth_attachment_infos);
         allocator.free(self.depth_attachments);
+    }
+
+    pub fn setup_imgui(
+        system: *VulkanSystem,
+        window: *Window,
+        config_flags: c_int,
+    ) !ImguiInfo {
+        // --- Descriptor pool.
+
+        const pool_sizes = [_]l0vk.VkDescriptorPoolSize{
+            .{
+                .type = .sampler,
+                .descriptorCount = 1000,
+            },
+            .{
+                .type = .combined_image_sampler,
+                .descriptorCount = 1000,
+            },
+            .{
+                .type = .sampled_image,
+                .descriptorCount = 1000,
+            },
+            .{
+                .type = .storage_image,
+                .descriptorCount = 1000,
+            },
+            .{
+                .type = .uniform_texel_buffer,
+                .descriptorCount = 1000,
+            },
+            .{
+                .type = .storage_texel_buffer,
+                .descriptorCount = 1000,
+            },
+            .{
+                .type = .uniform_buffer,
+                .descriptorCount = 1000,
+            },
+            .{
+                .type = .storage_buffer,
+                .descriptorCount = 1000,
+            },
+            .{
+                .type = .uniform_buffer_dynamic,
+                .descriptorCount = 1000,
+            },
+            .{
+                .type = .storage_buffer_dynamic,
+                .descriptorCount = 1000,
+            },
+            .{
+                .type = .input_attachment,
+                .descriptorCount = 1000,
+            },
+        };
+
+        const pool_info = l0vk.VkDescriptorPoolCreateInfo{
+            .flags = .{
+                .free_descriptor_set = true,
+            },
+            .maxSets = 1000,
+            .poolSizes = &pool_sizes,
+        };
+
+        const imgui_descriptor_pool = try l0vk.vkCreateDescriptorPool(
+            system.logical_device,
+            &pool_info,
+            null,
+        );
+
+        // --- Initialize imgui library.
+
+        _ = cimgui.igCreateContext(null);
+        const io = cimgui.igGetIO();
+        io.*.ConfigFlags = config_flags;
+        _ = cimgui.ImGui_ImplGlfw_InitForVulkan(@ptrCast(window.window), true);
+
+        var vulkan_init_info = cimgui.ImGui_ImplVulkan_InitInfo{
+            .Instance = @ptrCast(system.instance),
+            .PhysicalDevice = @ptrCast(system.physical_device),
+            .Device = @ptrCast(system.logical_device),
+            .Queue = @ptrCast(system.graphics_queue),
+            .DescriptorPool = @ptrCast(imgui_descriptor_pool),
+            .MinImageCount = @intCast(window.swapchain.swapchain.swapchain_images.len),
+            .ImageCount = @intCast(window.swapchain.swapchain.swapchain_images.len),
+            .MSAASamples = @import("vulkan").VK_SAMPLE_COUNT_1_BIT,
+            .UseDynamicRendering = true,
+            .ColorAttachmentFormat = @intFromEnum(window.swapchain.swapchain.swapchain_image_format),
+        };
+        _ = cimgui.ImGui_ImplVulkan_Init(@ptrCast(&vulkan_init_info), @ptrCast(l0vk.VK_NULL_HANDLE));
+
+        // --- Load fonts.
+
+        const command_pool = system.command_pool;
+        const command_buffer = window.swapchain.swapchain.a_command_buffers[0];
+
+        try l0vk.vkResetCommandPool(
+            system.logical_device,
+            command_pool,
+            .{},
+        );
+
+        const cb_begin_info = l0vk.VkCommandBufferBeginInfo{
+            .flags = .{
+                .one_time_submit = true,
+            },
+        };
+        try l0vk.vkBeginCommandBuffer(command_buffer, &cb_begin_info);
+
+        _ = cimgui.ImGui_ImplVulkan_CreateFontsTexture(@ptrCast(command_buffer));
+
+        const end_info = l0vk.VkSubmitInfo{
+            .commandBuffers = &[_]l0vk.VkCommandBuffer{
+                command_buffer,
+            },
+            .waitSemaphores = &[_]l0vk.VkSemaphore{},
+            .signalSemaphores = &[_]l0vk.VkSemaphore{},
+            .pWaitDstStageMask = null,
+        };
+
+        try l0vk.vkEndCommandBuffer(command_buffer);
+        try l0vk.vkQueueSubmit(system.graphics_queue, 1, &end_info, null);
+        try l0vk.vkDeviceWaitIdle(system.logical_device);
+
+        _ = cimgui.ImGui_ImplVulkan_DestroyFontUploadObjects();
+
+        return ImguiInfo{
+            .enabled = .{
+                .descriptor_pool = imgui_descriptor_pool,
+            },
+        };
     }
 
     pub fn pre_begin(self: *Self, window: *Window, current_frame: usize) void {
@@ -1277,7 +1432,17 @@ pub const DynamicRenderpass2 = struct {
     }
 
     pub fn end(self: *Self, system: *VulkanSystem, command_buffer: l0vk.VkCommandBuffer) void {
-        _ = self;
+        switch (self.imgui_info) {
+            .disabled => {},
+            .enabled => {
+                cimgui.ImGui_ImplVulkan_RenderDrawData(
+                    cimgui.igGetDrawData(),
+                    @ptrCast(command_buffer),
+                    @ptrCast(l0vk.VK_NULL_HANDLE),
+                );
+            },
+        }
+
         l0vk.vkCmdEndRendering(system.instance, command_buffer);
     }
 };

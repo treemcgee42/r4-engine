@@ -22,6 +22,7 @@ pub const Node = struct {
     inputs: std.ArrayList(ResourceDescription),
     outputs: std.ArrayList(ResourceDescription),
 
+    imgui_enabled: bool = false,
     clear_color: [4]f32 = .{ 1, 0, 1, 1 },
     render_fn: RenderFn,
 };
@@ -90,6 +91,7 @@ pub const RenderGraph = struct {
                 .outputs = std.ArrayList(ResourceDescription).init(self.allocator),
                 .render_fn = nodes[i].render_fn,
                 .clear_color = nodes[i].clear_color,
+                .imgui_enabled = nodes[i].imgui_enabled,
             };
 
             try node.inputs.appendSlice(nodes[i].inputs.items);
@@ -269,6 +271,7 @@ pub const RenderGraph = struct {
                 .window = window,
                 .attachments = attachments.items,
                 .clear_color = node_ptr.clear_color,
+                .enable_imgui = node_ptr.imgui_enabled,
             };
             const renderpass = try system.renderpass_system.create_new_renderpass(&create_info);
             self.node_data.items[i].renderpass = renderpass;

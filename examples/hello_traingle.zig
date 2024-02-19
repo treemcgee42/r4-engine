@@ -2,6 +2,7 @@ const std = @import("std");
 
 const r4_core = @import("r4_core");
 const vulkan = r4_core.vulkan;
+const cimgui = r4_core.cimgui;
 const l0vk = r4_core.l0vk;
 const Core = r4_core.Core;
 const Window = r4_core.Window;
@@ -123,6 +124,7 @@ pub fn main() !void {
             .data = &main_pass,
         },
         .clear_color = .{ 0.0, 0.5, 0.5, 1.0 },
+        .imgui_enabled = true,
     };
 
     var nodes = [_]rendergraph.Node{node};
@@ -132,6 +134,17 @@ pub fn main() !void {
     main_pass = try MainPass.init(&core, &window);
 
     while (!window.should_close()) {
+        cimgui.ImGui_ImplVulkan_NewFrame();
+        cimgui.ImGui_ImplGlfw_NewFrame();
+        cimgui.igNewFrame();
+
+        var open = true;
+        cimgui.igShowDemoWindow(&open);
+
+        cimgui.igRender();
+
+        // ---
+
         try rg.execute(&core.renderer, &window);
     }
 }

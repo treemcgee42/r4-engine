@@ -7,3 +7,5 @@ pub const pipeline = @import("./renderer/vulkan/pipeline.zig");
 
 // tmp for testing
 pub const rendergraph = @import("./renderer/vulkan/rendergraph.zig");
+
+pub const cimgui = @import("cimgui");
