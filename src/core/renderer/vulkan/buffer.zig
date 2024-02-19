@@ -1020,6 +1020,10 @@ pub const VulkanImage = struct {
         old_layout: vulkan.VkImageLayout,
         new_layout: vulkan.VkImageLayout,
     ) VulkanError!void {
+        if (self.current_layout == new_layout) {
+            return;
+        }
+
         if (self.current_layout != old_layout) {
             const old: l0vk.VkImageLayout = @enumFromInt(old_layout);
             const new: l0vk.VkImageLayout = @enumFromInt(new_layout);

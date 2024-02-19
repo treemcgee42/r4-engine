@@ -225,8 +225,18 @@ pub const RenderGraph = struct {
                 if (constructed_resources.contains(output_name)) {
                     continue;
                 }
+                dutil.log(
+                    "rendergraph",
+                    .info,
+                    "creating resource '{s}' of kind {s}",
+                    .{ output_desc.name, @tagName(output_desc.kind) },
+                );
                 try system.resource_system.create_resource(output_desc);
-                try system.resource_system.create_vulkan_resources(renderer, window, output_name);
+                try system.resource_system.create_vulkan_resources(
+                    renderer,
+                    window,
+                    output_name,
+                );
                 try constructed_resources.put(output_name, true);
             }
         }

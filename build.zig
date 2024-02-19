@@ -256,6 +256,7 @@ fn build_examples(
         .{ .name = "hello_triangle", .path = "./examples/hello_triangle.zig" },
         .{ .name = "hello_triangle_imgui", .path = "./examples/hello_triangle_imgui.zig" },
         .{ .name = "hello_triangle_offscreen", .path = "./examples/hello_triangle_offscreen.zig" },
+        .{ .name = "scene_viewer", .path = "./examples/scene_viewer.zig" },
     };
 
     const build_all_examples = b.option(

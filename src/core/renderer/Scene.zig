@@ -4,6 +4,7 @@ const r4_ecs = @import("ecs");
 const math = @import("math");
 const PipelineHandle = @import("./Renderer.zig").PipelineHandle;
 const Renderer = @import("./Renderer.zig");
+const l0vk = @import("./layer0/vulkan/vulkan.zig");
 const vulkan = @import("vulkan");
 
 // ---
@@ -146,7 +147,7 @@ pub fn update_scale_of_object(
     try self.update_entity_transform_from_components(object);
 }
 
-pub fn draw(self: *Self) !void {
+pub fn draw(self: *Self, command_buffer: l0vk.VkCommandBuffer) !void {
     self.frame_number += 1;
 
     var prev_material: ?MaterialHandle = null;
@@ -155,7 +156,10 @@ pub fn draw(self: *Self) !void {
     while (i < self.objects.items.len) : (i += 1) {
         const object = self.objects.items[i].entity;
 
-        const mesh = self.objects_ecs.get_component_for_entity(object, MeshSystem.Mesh) orelse {
+        const mesh = self.objects_ecs.get_component_for_entity(
+            object,
+            MeshSystem.Mesh,
+        ) orelse {
             dutil.log(
                 "scene",
                 .warn,
@@ -164,7 +168,10 @@ pub fn draw(self: *Self) !void {
             );
             continue;
         };
-        const material = self.objects_ecs.get_component_for_entity(object, MaterialHandle) orelse {
+        const material = self.objects_ecs.get_component_for_entity(
+            object,
+            MaterialHandle,
+        ) orelse {
             dutil.log(
                 "scene",
                 .warn,
@@ -173,7 +180,10 @@ pub fn draw(self: *Self) !void {
             );
             continue;
         };
-        const transform = self.objects_ecs.get_component_for_entity(object, Transform) orelse {
+        const transform = self.objects_ecs.get_component_for_entity(
+            object,
+            Transform,
+        ) orelse {
             dutil.log(
                 "scene",
                 .warn,
@@ -184,7 +194,7 @@ pub fn draw(self: *Self) !void {
         };
 
         if (material.* != prev_material) {
-            try self.bind_material(material.*);
+            self.material_system.bind(command_buffer, material.*);
             prev_material = material.*;
         }
 
@@ -193,19 +203,39 @@ pub fn draw(self: *Self) !void {
         projection_matrix.raw[1][1] *= -1;
         var transform_matrix = transform.val;
         var rotate_axis = math.Vec3f.init(0, 1, 0);
-        transform_matrix.apply_rotation(@as(f32, @floatFromInt(self.frame_number)) * 0.01, &rotate_axis);
+        transform_matrix.apply_rotation(
+            @as(f32, @floatFromInt(self.frame_number)) * 0.01,
+            &rotate_axis,
+        );
         var intermediate = math.mat4f_times_mat4f(&view_matrix, &transform_matrix);
         const mvp_matrix = math.mat4f_times_mat4f(&projection_matrix, &intermediate);
-        const push_constants = PushConstants{
+        var push_constants = PushConstants{
             .data = undefined,
             .transform_matrix = mvp_matrix,
         };
-        const pipeline_handle = self.material_system.materials.items[material.*].pipeline;
-        try self._renderer.upload_push_constants(pipeline_handle, push_constants);
+        self.material_system.upload_push_constants(
+            command_buffer,
+            material.*,
+            &push_constants,
+        );
 
-        try self._renderer.bind_vertex_buffer(mesh.vertex_buffer.buffer);
+        var bufs = [_]vulkan.VkBuffer{mesh.vertex_buffer.buffer};
+        var offsets = [_]vulkan.VkDeviceSize{0};
+        vulkan.vkCmdBindVertexBuffers(
+            command_buffer,
+            0,
+            1,
+            bufs[0..].ptr,
+            offsets[0..].ptr,
+        );
 
-        try self._renderer.draw(mesh.vertices.items.len);
+        vulkan.vkCmdDraw(
+            command_buffer,
+            @intCast(mesh.vertices.items.len),
+            1,
+            0,
+            0,
+        );
     }
 }
 
@@ -269,18 +299,34 @@ pub const MeshSystem = @import("vulkan/mesh.zig").MeshSystem(Vertex);
 // ---
 
 pub const Material = struct {
-    pipeline: PipelineHandle,
+    pipeline: l0vk.VkPipeline,
+    pipeline_layout: l0vk.VkPipelineLayout,
 
-    pub fn bind(self: Material, renderer: *Renderer) void {
-        renderer.bind_pipeline(self.pipeline);
+    pub fn bind(self: Material, command_buffer: l0vk.VkCommandBuffer) void {
+        vulkan.vkCmdBindPipeline(
+            command_buffer,
+            vulkan.VK_PIPELINE_BIND_POINT_GRAPHICS,
+            self.pipeline,
+        );
+    }
+
+    pub fn upload_push_constants(
+        self: Material,
+        command_buffer: l0vk.VkCommandBuffer,
+        push_constants: *PushConstants,
+    ) void {
+        vulkan.vkCmdPushConstants(
+            command_buffer,
+            self.pipeline_layout,
+            vulkan.VK_SHADER_STAGE_VERTEX_BIT,
+            0,
+            @sizeOf(PushConstants),
+            push_constants,
+        );
     }
 };
 
 pub const MaterialHandle = usize;
-
-pub fn bind_material(self: *Self, material: MaterialHandle) !void {
-    try self._renderer.bind_pipeline(material);
-}
 
 pub const MaterialSystem = struct {
     materials: std.ArrayList(Material),
@@ -298,6 +344,26 @@ pub const MaterialSystem = struct {
     pub fn register_material(self: *MaterialSystem, material: Material) !MaterialHandle {
         try self.materials.append(material);
         return self.materials.items.len - 1;
+    }
+
+    fn bind(
+        self: *MaterialSystem,
+        command_buffer: l0vk.VkCommandBuffer,
+        handle: MaterialHandle,
+    ) void {
+        self.materials.items[handle].bind(command_buffer);
+    }
+
+    fn upload_push_constants(
+        self: *MaterialSystem,
+        command_buffer: l0vk.VkCommandBuffer,
+        handle: MaterialHandle,
+        push_constants: *PushConstants,
+    ) void {
+        self.materials.items[handle].upload_push_constants(
+            command_buffer,
+            push_constants,
+        );
     }
 };
 

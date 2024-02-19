@@ -145,7 +145,11 @@ pub const ResourceSystem = struct {
             },
             .attachment => {
                 vulkan_resource = .{
-                    .attachment = try attachment_resource_to_vulkan_resources(renderer, window, description),
+                    .attachment = try attachment_resource_to_vulkan_resources(
+                        renderer,
+                        window,
+                        description,
+                    ),
                 };
             },
         }

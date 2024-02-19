@@ -1084,6 +1084,20 @@ pub const DynamicRenderpass = struct {
 
 // --- DynamicRenderpass2
 
+pub const ImGuiConfigFlags = packed struct(c_int) {
+    nav_enable_keyboard: bool = false,
+    nav_enable_gamepad: bool = false,
+    nav_enable_set_mouse_pos: bool = false,
+    nav_no_capture_keyboard: bool = false,
+
+    no_mouse: bool = false,
+    no_mouse_cursor_change: bool = false,
+    docking_enabled: bool = false,
+    viewports_enabled: bool = false,
+
+    _: u24 = 0,
+};
+
 pub const DynamicRenderpass2 = struct {
     name: []const u8,
     color_attachment_infos: []Attachment,
@@ -1163,13 +1177,16 @@ pub const DynamicRenderpass2 = struct {
             num_depth_attachments,
         );
 
+        var num_color_attachments_populated: usize = 0;
+        var num_depth_attachments_populated: usize = 0;
         i = 0;
         while (i < info.attachments.len) : (i += 1) {
             const attachment_ptr = &info.attachments[i];
             switch (attachment_ptr.kind) {
                 .color_final => {
-                    color_attachment_infos[i] = attachment_ptr.*;
-                    color_attachments[i] = l0vk.VkRenderingAttachmentInfo{
+                    const idx = num_color_attachments_populated;
+                    color_attachment_infos[idx] = attachment_ptr.*;
+                    color_attachments[idx] = l0vk.VkRenderingAttachmentInfo{
                         .imageView = undefined,
                         .imageLayout = .color_attachment_optimal,
                         .loadOp = .clear,
@@ -1179,10 +1196,12 @@ pub const DynamicRenderpass2 = struct {
                         .resolveImageLayout = .undefined,
                         .resolveImageView = null,
                     };
+                    num_color_attachments_populated += 1;
                 },
                 .color => {
-                    color_attachment_infos[i] = attachment_ptr.*;
-                    color_attachments[i] = l0vk.VkRenderingAttachmentInfo{
+                    const idx = num_color_attachments_populated;
+                    color_attachment_infos[idx] = attachment_ptr.*;
+                    color_attachments[idx] = l0vk.VkRenderingAttachmentInfo{
                         .imageView = attachment_ptr.image_view,
                         .imageLayout = .color_attachment_optimal,
                         .loadOp = .clear,
@@ -1192,10 +1211,12 @@ pub const DynamicRenderpass2 = struct {
                         .resolveImageLayout = .undefined,
                         .resolveImageView = null,
                     };
+                    num_color_attachments_populated += 1;
                 },
                 .depth => {
-                    depth_attachment_infos[i] = attachment_ptr.*;
-                    depth_attachments[i] = l0vk.VkRenderingAttachmentInfo{
+                    const idx = num_depth_attachments_populated;
+                    depth_attachment_infos[idx] = attachment_ptr.*;
+                    depth_attachments[idx] = l0vk.VkRenderingAttachmentInfo{
                         .imageView = attachment_ptr.image_view,
                         .imageLayout = .depth_stencil_attachment_optimal,
                         .loadOp = .clear,
@@ -1210,15 +1231,31 @@ pub const DynamicRenderpass2 = struct {
                         .resolveImageLayout = .undefined,
                         .resolveImageView = null,
                     };
+                    num_depth_attachments_populated += 1;
                 },
             }
+        }
+
+        if (color_attachments.len > 1) {
+            du.log(
+                "renderpass",
+                .warn,
+                "can't have multiple color attachments (tried to init '{s}' with {d})",
+                .{ info.name, color_attachments.len },
+            );
+            @panic("remove me");
         }
 
         const depth_attachment_ptr = if (num_depth_attachments > 0) &depth_attachments[0] else null;
 
         var imgui_info = ImguiInfo{ .disabled = {} };
         if (info.enable_imgui) {
-            imgui_info = try setup_imgui(info.system, info.window, 0);
+            const config_flags = ImGuiConfigFlags{ .docking_enabled = true };
+            imgui_info = try setup_imgui(
+                info.system,
+                info.window,
+                @bitCast(config_flags),
+            );
         }
 
         render_info.* = l0vk.VkRenderingInfo{
@@ -1428,7 +1465,11 @@ pub const DynamicRenderpass2 = struct {
     }
 
     pub fn begin(self: *Self, system: *VulkanSystem, command_buffer: l0vk.VkCommandBuffer) void {
-        l0vk.vkCmdBeginRendering(system.instance, command_buffer, self.render_info) catch unreachable;
+        l0vk.vkCmdBeginRendering(
+            system.instance,
+            command_buffer,
+            self.render_info,
+        ) catch unreachable;
     }
 
     pub fn end(self: *Self, system: *VulkanSystem, command_buffer: l0vk.VkCommandBuffer) void {

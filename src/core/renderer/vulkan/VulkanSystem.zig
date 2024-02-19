@@ -999,3 +999,20 @@ pub const DeletionQueue = struct {
         }
     }
 };
+
+pub fn get_binding_description(
+    self: *VulkanSystem,
+    comptime vertex_type: type,
+) l0vk.VkVertexInputBindingDescription {
+    _ = self;
+    return buffer.get_binding_description(vertex_type);
+}
+
+pub fn get_attribute_descriptions(
+    self: *VulkanSystem,
+    allocator: std.mem.Allocator,
+    comptime vertex_type: type,
+) ![]l0vk.VkVertexInputAttributeDescription {
+    _ = self;
+    return buffer.get_attribute_descriptions(allocator, vertex_type);
+}
