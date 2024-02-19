@@ -321,7 +321,7 @@ pub const RenderGraph = struct {
                 node_data_ptr.renderpass,
             );
 
-            // --- Transition inputs.
+            // --- Transitions before calling render function.
 
             var j: usize = 0;
             while (j < node_ptr.inputs.items.len) : (j += 1) {
@@ -333,13 +333,44 @@ pub const RenderGraph = struct {
 
                 const attachment_kind = renderer.system.resource_system.get_attachment_kind(input.name) catch unreachable;
 
-                if (attachment_kind == .color_final) {
+                if (attachment_kind == .color) {
                     try renderer.system.resource_system.transition_image_layout(
                         renderer,
                         window,
                         command_buffer,
                         input.name,
+                        vulkan.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                        vulkan.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    );
+                }
+            }
+
+            j = 0;
+            while (j < node_ptr.outputs.items.len) : (j += 1) {
+                const output = node_ptr.outputs.items[j];
+
+                if (!renderer.system.resource_system.is_attachment(output.name)) {
+                    continue;
+                }
+
+                const attachment_kind = renderer.system.resource_system.get_attachment_kind(output.name) catch unreachable;
+
+                if (attachment_kind == .color_final) {
+                    try renderer.system.resource_system.transition_image_layout(
+                        renderer,
+                        window,
+                        command_buffer,
+                        output.name,
                         vulkan.VK_IMAGE_LAYOUT_UNDEFINED,
+                        vulkan.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                    );
+                } else if (attachment_kind == .color) {
+                    try renderer.system.resource_system.transition_image_layout(
+                        renderer,
+                        window,
+                        command_buffer,
+                        output.name,
+                        vulkan.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                         vulkan.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                     );
                 }

@@ -177,6 +177,30 @@ pub const ResourceSystem = struct {
         }
     }
 
+    pub fn get_image_sampler(
+        self: *ResourceSystem,
+        resource_name: []const u8,
+    ) !vulkan.VkSampler {
+        const resource = self.vulkan_resources.get(resource_name) orelse {
+            return Error.resource_not_found;
+        };
+
+        switch (resource) {
+            .attachment => {
+                return resource.attachment.get_image_sampler();
+            },
+            else => {
+                dutil.log(
+                    "resource system",
+                    .err,
+                    "resource {s} is not an attachment",
+                    .{resource_name},
+                );
+                return Error.resource_not_found;
+            },
+        }
+    }
+
     pub fn is_attachment(
         self: *ResourceSystem,
         resource_name: []const u8,
@@ -331,7 +355,7 @@ pub const ResourceSystem = struct {
         old_layout: vulkan.VkImageLayout,
         new_layout: vulkan.VkImageLayout,
     ) !void {
-        const resource = self.vulkan_resources.get(resource_name) orelse {
+        const resource = self.vulkan_resources.getPtr(resource_name) orelse {
             dutil.log(
                 "resource system",
                 .err,
@@ -341,23 +365,33 @@ pub const ResourceSystem = struct {
             return;
         };
 
-        switch (resource) {
+        switch (resource.*) {
             .not_allocated => {},
             .attachment => {
-                const vulkan_resources = resource.attachment;
+                var vulkan_resources = &resource.attachment;
 
                 switch (vulkan_resources.image) {
                     .color_final => {
                         try buffer.transition_image_layout_base(
-                            window.swapchain.swapchain.swapchain_images[renderer.current_frame_context.?.image_index],
+                            window.swapchain.swapchain.swapchain_images[
+                                renderer.current_frame_context.?.image_index
+                            ],
                             command_buffer,
                             old_layout,
                             new_layout,
                             1,
                         );
                     },
-                    .color => {},
-                    .depth => {},
+                    .color => {
+                        try vulkan_resources.image.color.image.transition_image_layout(
+                            command_buffer,
+                            old_layout,
+                            new_layout,
+                        );
+                    },
+                    .depth => {
+                        @panic("not implemented");
+                    },
                 }
             },
         }
@@ -398,6 +432,21 @@ const VulkanAttachmentResources = struct {
             },
             .color => |c| c.image_view,
             .depth => |d| d.image_view,
+        };
+    }
+
+    fn get_image_sampler(self: VulkanAttachmentResources) vulkan.VkSampler {
+        return switch (self.image) {
+            .color_final, .depth => {
+                dutil.log(
+                    "resource system",
+                    .err,
+                    "calling get_image_view on color_final (it's not stored here)",
+                    .{},
+                );
+                @panic("bad");
+            },
+            .color => |c| c.sampler.?,
         };
     }
 

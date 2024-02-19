@@ -108,7 +108,6 @@ pub fn main() !void {
 
     var inputs = std.ArrayList(ResourceDescription).init(core.allocator);
     defer inputs.deinit();
-    try inputs.append(final_attachment);
     var outputs = std.ArrayList(ResourceDescription).init(core.allocator);
     defer outputs.deinit();
     try outputs.append(final_attachment);
