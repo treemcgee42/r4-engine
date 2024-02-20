@@ -44,6 +44,9 @@ pub const RenderGraph = struct {
     /// Elements are indices into the `nodes` (and `node_data`) array.
     sorted_nodes: std.ArrayList(usize),
 
+    callback_data: ?*CallbackData = null,
+    callback_handle: usize = undefined,
+
     pub fn init_empty(allocator: std.mem.Allocator) RenderGraph {
         const nodes = std.ArrayList(Node).init(allocator);
         const node_data = std.ArrayList(NodeGraphData).init(allocator);
@@ -75,6 +78,11 @@ pub const RenderGraph = struct {
         }
 
         self.node_data.deinit();
+
+        if (self.callback_data != null) {
+            self.allocator.destroy(self.callback_data.?);
+            // TODO: any issues with not removing the callback?
+        }
     }
 
     /// Caller should probably recompile the graph after calling this function.
@@ -301,12 +309,108 @@ pub const RenderGraph = struct {
         try self.compile_create_resources(system, renderer, window);
         try self.compile_create_renderpasses(system, renderer, window);
 
+        if (self.callback_data == null) {
+            try self.register_window_resize_callback(
+                system,
+                renderer,
+                window,
+            );
+        }
+
         dutil.log(
             "render graph",
             .info,
-            "{s}: finished ({d} nodes)",
-            .{ @src().fn_name, self.sorted_nodes.items.len },
+            "{s}: finished ({d} nodes):\n{}",
+            .{ @src().fn_name, self.sorted_nodes.items.len, self },
         );
+    }
+
+    pub fn recompile(
+        self: *RenderGraph,
+        system: *VulkanSystem,
+        renderer: *Renderer,
+        window: *Window,
+    ) !void {
+        dutil.log(
+            "render graph",
+            .info,
+            "{s}",
+            .{@src().fn_name},
+        );
+
+        // ---
+
+        var destroyed_resources = std.StringHashMap(bool).init(system.allocator);
+        defer destroyed_resources.deinit();
+
+        var i: usize = 0;
+        while (i < self.sorted_nodes.items.len) : (i += 1) {
+            const node_idx = self.sorted_nodes.items[i];
+            const node_ptr = &self.nodes.items[node_idx];
+            const node_data_ptr = &self.node_data.items[node_idx];
+
+            var j: usize = 0;
+            while (j < node_ptr.outputs.items.len) : (j += 1) {
+                const output_ptr = &node_ptr.outputs.items[j];
+
+                if (destroyed_resources.contains(output_ptr.name)) {
+                    continue;
+                }
+
+                system.resource_system.destroy_resource(system, output_ptr.name);
+                try destroyed_resources.put(output_ptr.name, true);
+            }
+
+            try system.renderpass_system.deinit_renderpass(system, node_data_ptr.renderpass);
+
+            self.node_data.items[i].edges.items.len = 0;
+        }
+
+        self.sorted_nodes.items.len = 0;
+
+        // ---
+
+        try self.compile(system, renderer, window);
+    }
+
+    const CallbackData = struct {
+        self: *RenderGraph,
+        system: *VulkanSystem,
+        renderer: *Renderer,
+        window: *Window,
+    };
+
+    pub fn register_window_resize_callback(
+        self: *RenderGraph,
+        system: *VulkanSystem,
+        renderer: *Renderer,
+        window: *Window,
+    ) !void {
+        const callback_data = try system.allocator.create(CallbackData);
+        errdefer system.allocator.destroy(callback_data);
+        callback_data.* = .{
+            .self = self,
+            .system = system,
+            .renderer = renderer,
+            .window = window,
+        };
+        self.callback_data = callback_data;
+
+        self.callback_handle = try window.window_size_pixels.add_callback(.{
+            .extra_data = @ptrCast(self.callback_data),
+            .callback_fn = &window_resize_callback,
+            .name = "rendergraph",
+        });
+    }
+
+    fn window_resize_callback(new_size: Window.WindowSize, extra_data: ?*anyopaque) void {
+        _ = new_size;
+        const callback_data: *CallbackData = @ptrCast(@alignCast(extra_data));
+        callback_data.self.recompile(
+            callback_data.system,
+            callback_data.renderer,
+            callback_data.window,
+        ) catch unreachable;
     }
 
     pub fn execute(

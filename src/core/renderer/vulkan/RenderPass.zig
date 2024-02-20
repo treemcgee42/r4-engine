@@ -24,17 +24,26 @@ pub const RenderpassHandle = usize;
 
 pub const RenderpassSystem = struct {
     renderpasses: std.ArrayList(Renderpass),
+    free_renderpass_indices: std.ArrayList(usize),
     rp_map: std.StringHashMap(RenderpassHandle),
 
     pub fn init(allocator_: std.mem.Allocator) RenderpassSystem {
         return .{
             .renderpasses = std.ArrayList(Renderpass).init(allocator_),
+            .free_renderpass_indices = std.ArrayList(usize).init(allocator_),
             .rp_map = std.StringHashMap(RenderpassHandle).init(allocator_),
         };
     }
 
     pub fn deinit(self: *RenderpassSystem, system: *VulkanSystem) void {
         var i: usize = 0;
+
+        while (i < self.free_renderpass_indices.items.len) : (i += 1) {
+            const idx = self.free_renderpass_indices.items[i];
+            _ = self.renderpasses.swapRemove(idx);
+        }
+
+        i = 0;
         while (i < self.renderpasses.items.len) : (i += 1) {
             switch (self.renderpasses.items[i]) {
                 .static => |*rp| rp.deinit(system.allocator, system),
@@ -44,7 +53,21 @@ pub const RenderpassSystem = struct {
         }
 
         self.renderpasses.deinit();
+        self.free_renderpass_indices.deinit();
         self.rp_map.deinit();
+    }
+
+    pub fn deinit_renderpass(
+        self: *RenderpassSystem,
+        system: *VulkanSystem,
+        handle: RenderpassHandle,
+    ) !void {
+        const rp = self.renderpasses.items[handle].new;
+        const rp_name = rp.name;
+
+        try self.free_renderpass_indices.append(handle);
+        _ = self.rp_map.remove(rp_name);
+        self.renderpasses.items[handle].new.deinit(system);
     }
 
     pub fn create_static_renderpass(
@@ -76,9 +99,16 @@ pub const RenderpassSystem = struct {
         info: *const DynamicRenderpass2.CreateInfo,
     ) !RenderpassHandle {
         const rp = try DynamicRenderpass2.init(info);
-        try self.renderpasses.append(.{ .new = rp });
 
-        const handle = self.renderpasses.items.len - 1;
+        var handle: usize = undefined;
+        if (self.free_renderpass_indices.items.len > 0) {
+            handle = self.free_renderpass_indices.pop();
+            self.renderpasses.items[handle] = .{ .new = rp };
+        } else {
+            handle = self.renderpasses.items.len;
+            try self.renderpasses.append(.{ .new = rp });
+        }
+
         try self.rp_map.put(info.name, handle);
         return handle;
     }
@@ -1109,7 +1139,6 @@ pub const DynamicRenderpass2 = struct {
 
     window: *Window,
     render_info: *l0vk.VkRenderingInfo,
-    window_resize_callback_handle: usize,
 
     pub const Attachment = struct {
         kind: AttachmentKind,
@@ -1142,10 +1171,6 @@ pub const DynamicRenderpass2 = struct {
             .width = swapchain_extent.width,
             .height = swapchain_extent.height,
         };
-        const resize_callback_handle = try info.window.window_size_pixels.add_callback(.{
-            .callback_fn = &window_resize_callback,
-            .extra_data = @ptrCast(render_info),
-        });
 
         // ---
 
@@ -1281,7 +1306,6 @@ pub const DynamicRenderpass2 = struct {
 
             .window = info.window,
             .render_info = render_info,
-            .window_resize_callback_handle = resize_callback_handle,
         };
     }
 
@@ -1453,15 +1477,6 @@ pub const DynamicRenderpass2 = struct {
                 attachment_ptr.imageView = window.swapchain.swapchain.swapchain_image_views[current_frame];
             }
         }
-    }
-
-    pub fn window_resize_callback(new_size: Window.WindowSize, data_untyped: ?*anyopaque) void {
-        const ri: *l0vk.VkRenderingInfo = @ptrCast(@alignCast(data_untyped.?));
-
-        ri.renderArea = .{
-            .offset = .{ .x = 0, .y = 0 },
-            .extent = .{ .width = new_size.width, .height = new_size.height },
-        };
     }
 
     pub fn begin(self: *Self, system: *VulkanSystem, command_buffer: l0vk.VkCommandBuffer) void {

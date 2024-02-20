@@ -45,9 +45,11 @@ pub fn register_recreate_callback_for_window_size(
         .window = window,
     };
 
-    const handle = try window.window_size.add_callback(.{
+    const handle = try window.window_size_pixels.add_callback(.{
         .callback_fn = &recreate_callback,
         .extra_data = @ptrCast(self.recreate_callback_data),
+        .priority = 100,
+        .name = "Renderer::Swapchain",
     });
     self.recreate_callback_handle = handle;
 }
@@ -81,7 +83,7 @@ pub fn recreate(self: *Swapchain, renderer: *Renderer, window: *Window) !void {
 }
 
 pub fn deinit(self: *Swapchain, renderer: *Renderer, window: *Window) void {
-    window.window_size.remove_callback(self.recreate_callback_handle) catch unreachable;
+    window.window_size_pixels.remove_callback(self.recreate_callback_handle);
     renderer.allocator.destroy(self.recreate_callback_data);
 
     const deinit_ctx = renderer.system.allocator.create(VulkanSwapchain.DeinitGenericCtx) catch unreachable;

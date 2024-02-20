@@ -38,7 +38,7 @@ const Resolution = union(enum) {
                 var base_res: WidthAndHeight = undefined;
                 switch (r.relative_to) {
                     .window => {
-                        const size = window.size();
+                        const size = window.get_size_pixels();
                         base_res = .{
                             .width = size.width,
                             .height = size.height,
@@ -119,6 +119,18 @@ pub const ResourceSystem = struct {
         }
 
         self.vulkan_resources.deinit();
+    }
+
+    pub fn destroy_resource(
+        self: *ResourceSystem,
+        vulkan_system: *VulkanSystem,
+        name: []const u8,
+    ) void {
+        _ = self.resource_descriptions.remove(name);
+        const vulkan_resources = self.vulkan_resources.get(name);
+        if (vulkan_resources != null) {
+            vulkan_resources.?.deinit(vulkan_system);
+        }
     }
 
     pub fn create_resource(

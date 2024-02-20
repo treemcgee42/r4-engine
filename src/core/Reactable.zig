@@ -1,4 +1,5 @@
 const std = @import("std");
+const dutil = @import("debug_utils");
 
 pub const CallbackHandle = usize;
 
@@ -6,60 +7,92 @@ pub fn Reactable(comptime T: type) type {
     return struct {
         pub const Callback = struct {
             extra_data: ?*anyopaque,
+            /// Sorted by priority, higher priorities are sorted first.
             callback_fn: *const fn (data: T, extra_data: ?*anyopaque) void,
-            skip: bool = false,
+            /// Lower number means lower priority.
+            priority: u8 = 0,
+            name: []const u8,
         };
 
         const Self = @This();
 
+        name: []const u8,
         data: T,
         callbacks: std.ArrayList(Callback),
-        empty_callbacks_indices: std.ArrayList(usize),
 
-        pub fn init_with_data(allocator: std.mem.Allocator, data: T) Reactable(T) {
+        pub fn init_with_data(
+            allocator: std.mem.Allocator,
+            data: T,
+            name: []const u8,
+        ) Reactable(T) {
             return .{
+                .name = name,
                 .data = data,
                 .callbacks = std.ArrayList(Callback).init(allocator),
-                .empty_callbacks_indices = std.ArrayList(usize).init(allocator),
             };
         }
 
         pub fn deinit(self: *Self) void {
             self.callbacks.deinit();
-            self.empty_callbacks_indices.deinit();
         }
 
         pub fn add_callback(
             self: *Self,
             callback: Callback,
         ) !CallbackHandle {
-            if (self.empty_callbacks_indices.items.len > 0) {
-                const handle = self.empty_callbacks_indices.pop();
-                self.callbacks.items[handle] = callback;
-                return handle;
+            const priority = callback.priority;
+            try self.callbacks.append(callback);
+
+            const num_callbacks = self.callbacks.items.len;
+            var handle = num_callbacks - 1;
+
+            var i: usize = 0;
+            while (i < num_callbacks - 1) : (i += 1) {
+                const this_callback = self.callbacks.items[i];
+                const this_priority = this_callback.priority;
+                if (this_priority < priority) {
+                    self.callbacks.items[num_callbacks - 1] = this_callback;
+                    self.callbacks.items[i] = callback;
+                    handle = i;
+                    break;
+                }
             }
 
-            try self.callbacks.append(callback);
-            return self.callbacks.items.len - 1;
+            return handle;
         }
 
-        pub fn remove_callback(self: *Self, handle: CallbackHandle) !void {
-            try self.empty_callbacks_indices.append(handle);
-            self.callbacks.items[handle].skip = true;
+        pub fn remove_callback(self: *Self, handle: CallbackHandle) void {
+            _ = self.callbacks.orderedRemove(handle);
         }
 
         pub fn set(self: *Self, data: T) void {
+            dutil.log(
+                "reactable",
+                .info,
+                "BEGIN calling callbacks for '{s}'",
+                .{self.name},
+            );
+
             self.data = data;
 
             var i: usize = 0;
             while (i < self.callbacks.items.len) : (i += 1) {
-                if (self.callbacks.items[i].skip) {
-                    continue;
-                }
-
                 const callback_ptr = &self.callbacks.items[i];
+                dutil.log(
+                    "reactable",
+                    .info,
+                    "'{s}' reactable calling '{s}'",
+                    .{ self.name, callback_ptr.name },
+                );
                 callback_ptr.callback_fn(self.data, callback_ptr.extra_data);
             }
+
+            dutil.log(
+                "reactable",
+                .info,
+                "END calling callbacks for '{s}'",
+                .{self.name},
+            );
         }
     };
 }
@@ -78,7 +111,10 @@ fn test_callback(data: i32, extra_data: ?*anyopaque) void {
 }
 
 test "Reactable" {
-    var reactable = Reactable(i32).init_with_data(std.testing.allocator, 0);
+    var reactable = Reactable(i32).init_with_data(
+        std.testing.allocator,
+        0,
+    );
     defer reactable.deinit();
 
     var extra_data = TestExtraData{
@@ -127,3 +163,5 @@ test "Reactable" {
     reactable.set(5);
     try std.testing.expect(extra_data.num_hits == 0);
 }
+
+// TODO: test for priorities

@@ -322,11 +322,21 @@ pub fn main() !void {
 
     const sampler = try core.renderer.system.resource_system.get_image_sampler("scene color");
     const view = try core.renderer.system.resource_system.get_image_view("scene color");
-    const imgui_image = cimgui.ImGui_ImplVulkan_AddTexture(
-        @ptrCast(sampler),
-        @ptrCast(view),
-        vulkan.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-    );
+    const imgui_image = try core.allocator.create(ImGuiSceneTextureData);
+    defer core.allocator.destroy(imgui_image);
+    imgui_image.* = .{
+        .descriptor_set = @ptrCast(cimgui.ImGui_ImplVulkan_AddTexture(
+            @ptrCast(sampler),
+            @ptrCast(view),
+            vulkan.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        )),
+        .core = &core,
+    };
+    _ = try window.window_size_pixels.add_callback(.{
+        .extra_data = @ptrCast(imgui_image),
+        .callback_fn = &imGuiSceneTextureCallback,
+        .name = "imgui scene texture",
+    });
 
     var viewport_open = true;
     var viewport_size: cimgui.ImVec2 = undefined;
@@ -468,7 +478,7 @@ pub fn main() !void {
             };
 
             cimgui.igImage(
-                @ptrCast(imgui_image),
+                @ptrCast(imgui_image.descriptor_set),
                 new_viewport_size,
                 cimgui.ImVec2{ // default uv0
                     .x = 0,
@@ -590,4 +600,22 @@ pub fn create_full_window_dock_space() void {
     _ = cimgui.igDockSpace(dockspace_id, cimgui.ImVec2{ .x = 0.0, .y = 0.0 }, cimgui.ImGuiDockNodeFlags_None, null);
 
     cimgui.igEnd();
+}
+
+const ImGuiSceneTextureData = struct {
+    core: *Core,
+    descriptor_set: vulkan.VkDescriptorSet,
+};
+
+fn imGuiSceneTextureCallback(size: Window.WindowSize, extra_data: ?*anyopaque) void {
+    _ = size;
+    var data: *ImGuiSceneTextureData = @ptrCast(@alignCast(extra_data));
+
+    const sampler = data.core.renderer.system.resource_system.get_image_sampler("scene color") catch unreachable;
+    const view = data.core.renderer.system.resource_system.get_image_view("scene color") catch unreachable;
+    data.descriptor_set = @ptrCast(cimgui.ImGui_ImplVulkan_AddTexture(
+        @ptrCast(sampler),
+        @ptrCast(view),
+        vulkan.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+    ));
 }

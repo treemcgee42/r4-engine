@@ -53,6 +53,7 @@ pub fn init(core: *Core, info: *const WindowInitInfo) WindowInitError!Window {
     const size_ = Reactable(WindowSize).init_with_data(
         core.allocator,
         .{ .width = info.width, .height = info.height },
+        "window size",
     );
 
     // ---
@@ -80,10 +81,7 @@ pub fn init(core: *Core, info: *const WindowInitInfo) WindowInitError!Window {
     var pixel_width: c_int = 0;
     var pixel_height: c_int = 0;
     glfw.glfwGetFramebufferSize(maybe_window, &pixel_width, &pixel_height);
-    const size_pixels = Reactable(WindowSize).init_with_data(
-        core.allocator,
-        .{ .width = @intCast(pixel_width), .height = @intCast(pixel_height) },
-    );
+    const size_pixels = Reactable(WindowSize).init_with_data(core.allocator, .{ .width = @intCast(pixel_width), .height = @intCast(pixel_height) }, "window size pixels");
 
     // ---
 
@@ -444,10 +442,17 @@ pub const WindowSize = struct {
     height: u32,
 };
 
-/// Returns (width, height).
+/// Returns (width, height) for device-independent dimensions.
 pub fn size(self: *const Window) WindowSize {
     return .{
         .width = self.window_size.data.width,
         .height = self.window_size.data.height,
+    };
+}
+
+pub fn get_size_pixels(self: *const Window) WindowSize {
+    return .{
+        .width = self.window_size_pixels.data.width,
+        .height = self.window_size_pixels.data.height,
     };
 }
