@@ -18,6 +18,7 @@ const vulkan = @import("vulkan");
 const vma = @import("vma");
 pub const VmaAllocator = vma.VmaAllocator;
 pub const mesh = @import("./mesh.zig");
+pub const Swapchain = @import("./Swapchain.zig");
 // tmp
 const buffer = @import("buffer.zig");
 pub const VulkanImage = buffer.VulkanImage;
@@ -51,6 +52,9 @@ tmp_image: ?buffer.ColorImage = null,
 tmp_renderer: ?*Renderer = null,
 
 resource_system: resource.ResourceSystem,
+
+surface: vulkan.VkSurfaceKHR,
+swapchain: *Swapchain,
 
 deinit_queue: DeletionQueue,
 
@@ -252,6 +256,10 @@ pub fn init(allocator_: std.mem.Allocator) !VulkanSystem {
 
     // ---
 
+    const swapchain = try allocator_.create(Swapchain);
+
+    // ---
+
     const deinit_queue = DeletionQueue.init(allocator_);
 
     // ---
@@ -283,6 +291,9 @@ pub fn init(allocator_: std.mem.Allocator) !VulkanSystem {
 
         .resource_system = resource_system,
 
+        .surface = null,
+        .swapchain = swapchain,
+
         .deinit_queue = deinit_queue,
     };
 }
@@ -292,6 +303,10 @@ pub fn deinit(self: *VulkanSystem, allocator_: std.mem.Allocator) void {
 
     self.deinit_queue.run();
     self.deinit_queue.deinit();
+
+    self.swapchain.deinit_queue_portion(allocator_, self);
+    allocator_.destroy(self.swapchain);
+    vulkan.vkDestroySurfaceKHR(self.instance, self.surface, null);
 
     self.sync_system.deinit(self);
     self.renderpass_system.deinit(self);
@@ -849,6 +864,11 @@ fn choose_swap_extent(capabilities: l0vk.VkSurfaceCapabilitiesKHR) l0vk.VkExtent
 
         return actual_extent;
     }
+}
+
+pub fn init_swapchain(self: *VulkanSystem, window: *glfw.GLFWwindow) !void {
+    self.surface = try create_surface(self.instance, window);
+    self.swapchain.* = try Swapchain.init(self, self.surface);
 }
 
 // --- }}}1

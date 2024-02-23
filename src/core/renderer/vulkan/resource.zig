@@ -365,7 +365,6 @@ pub const ResourceSystem = struct {
     pub fn transition_image_layout(
         self: *ResourceSystem,
         renderer: *Renderer,
-        window: *Window,
         command_buffer: l0vk.VkCommandBuffer,
         resource_name: []const u8,
         old_layout: vulkan.VkImageLayout,
@@ -389,7 +388,7 @@ pub const ResourceSystem = struct {
                 switch (vulkan_resources.image) {
                     .color_final => {
                         try buffer.transition_image_layout_base(
-                            window.swapchain.swapchain.swapchain_images[
+                            renderer.system.swapchain.swapchain_images[
                                 renderer.current_frame_context.?.image_index
                             ],
                             command_buffer,

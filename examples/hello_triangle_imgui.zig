@@ -46,11 +46,13 @@ pub const MainPass = struct {
             self.pipeline,
         );
 
+        const swapchain_extent = self.core.renderer.system.swapchain.swapchain_extent;
+
         const viewport = vulkan.VkViewport{
             .x = 0.0,
             .y = 0.0,
-            .width = @floatFromInt(self.window.swapchain.swapchain.swapchain_extent.width),
-            .height = @floatFromInt(self.window.swapchain.swapchain.swapchain_extent.height),
+            .width = @floatFromInt(swapchain_extent.width),
+            .height = @floatFromInt(swapchain_extent.height),
             .minDepth = 0.0,
             .maxDepth = 1.0,
         };
@@ -58,7 +60,7 @@ pub const MainPass = struct {
 
         const scissor = vulkan.VkRect2D{
             .offset = .{ .x = 0, .y = 0 },
-            .extent = self.window.swapchain.swapchain.swapchain_extent,
+            .extent = swapchain_extent,
         };
         vulkan.vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 
@@ -88,13 +90,15 @@ pub fn main() !void {
 
     // --- Build rendergraph.
 
+    const swapchain_image_format = core.renderer.system.swapchain.swapchain_image_format;
+
     const final_attachment = ResourceDescription{
         .name = "final",
         .kind = .attachment,
         .info = .{
             .attachment = .{
                 .kind = .color_final,
-                .format = window.swapchain.swapchain.swapchain_image_format,
+                .format = swapchain_image_format,
                 .resolution = .{
                     .relative = .{
                         .relative_to = .window,

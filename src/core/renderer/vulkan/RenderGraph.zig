@@ -430,7 +430,7 @@ pub const RenderGraph = struct {
             const node_data_ptr = &self.node_data.items[node_idx];
 
             renderer.system.renderpass_system.pre_begin(
-                window,
+                &renderer.system,
                 renderer.current_frame_context.?.image_index,
                 node_data_ptr.renderpass,
             );
@@ -450,7 +450,6 @@ pub const RenderGraph = struct {
                 if (attachment_kind == .color) {
                     try renderer.system.resource_system.transition_image_layout(
                         renderer,
-                        window,
                         command_buffer,
                         input.name,
                         vulkan.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
@@ -472,7 +471,6 @@ pub const RenderGraph = struct {
                 if (attachment_kind == .color_final) {
                     try renderer.system.resource_system.transition_image_layout(
                         renderer,
-                        window,
                         command_buffer,
                         output.name,
                         vulkan.VK_IMAGE_LAYOUT_UNDEFINED,
@@ -481,7 +479,6 @@ pub const RenderGraph = struct {
                 } else if (attachment_kind == .color) {
                     try renderer.system.resource_system.transition_image_layout(
                         renderer,
-                        window,
                         command_buffer,
                         output.name,
                         vulkan.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -521,7 +518,6 @@ pub const RenderGraph = struct {
                 if (attachment_kind == .color_final) {
                     try renderer.system.resource_system.transition_image_layout(
                         renderer,
-                        window,
                         command_buffer,
                         output.name,
                         vulkan.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,

@@ -6,6 +6,9 @@ pub const query_swapchain_settings = @import("./VulkanSystem.zig").query_swapcha
 const buffer = @import("./buffer.zig");
 const RenderPass = @import("./RenderPass.zig");
 const VulkanSystem = @import("./VulkanSystem.zig");
+const Renderer = @import("../Renderer.zig");
+const Window = @import("../../Window.zig");
+const CallbackHandle = @import("../../Reactable.zig").CallbackHandle;
 const SemaphoreHandle = VulkanSystem.SemaphoreHandle;
 const FenceHandle = VulkanSystem.FenceHandle;
 const l0vk = @import("../layer0/vulkan/vulkan.zig");
@@ -13,6 +16,7 @@ const l0vk = @import("../layer0/vulkan/vulkan.zig");
 const Swapchain = @This();
 
 swapchain: l0vk.VkSwapchainKHR,
+num_images: usize,
 swapchain_images: []l0vk.VkImage,
 swapchain_image_format: l0vk.VkFormat,
 swapchain_extent: l0vk.VkExtent2D,
@@ -29,9 +33,17 @@ b_command_buffers: []l0vk.VkCommandBuffer,
 
 current_frame: usize = 0,
 
+recreate_callback_data: *RecreateCallbackData,
+recreate_callback_handle: CallbackHandle,
+
 pub const max_frames_in_flight: usize = 2;
 
-pub fn init(allocator: std.mem.Allocator, system: *VulkanSystem, surface: l0vk.VkSurfaceKHR) !Swapchain {
+pub fn init(
+    system: *VulkanSystem,
+    surface: l0vk.VkSurfaceKHR,
+) !Swapchain {
+    const allocator = system.allocator;
+
     const swapchain_settings = try query_swapchain_settings(
         allocator,
         system.physical_device,
@@ -39,7 +51,10 @@ pub fn init(allocator: std.mem.Allocator, system: *VulkanSystem, surface: l0vk.V
         surface,
     );
 
-    const swapchain_info = try create_swapchain(allocator, swapchain_settings);
+    const swapchain_info = try create_swapchain(
+        allocator,
+        swapchain_settings,
+    );
     const swapchain_image_views = try create_image_views(
         allocator,
         system.logical_device,
@@ -63,8 +78,13 @@ pub fn init(allocator: std.mem.Allocator, system: *VulkanSystem, surface: l0vk.V
 
     // ---
 
+    const callback_data = try system.allocator.create(RecreateCallbackData);
+
+    // ---
+
     return .{
         .swapchain = swapchain_info.swapchain,
+        .num_images = swapchain_image_views.len,
         .swapchain_images = swapchain_info.images,
         .swapchain_image_format = swapchain_info.image_format,
         .swapchain_extent = swapchain_info.extent,
@@ -78,10 +98,35 @@ pub fn init(allocator: std.mem.Allocator, system: *VulkanSystem, surface: l0vk.V
 
         .a_command_buffers = a_command_buffers,
         .b_command_buffers = b_command_buffers,
+
+        .recreate_callback_data = callback_data,
+        .recreate_callback_handle = 0,
     };
 }
 
-pub fn deinit(self: Swapchain, allocator: std.mem.Allocator, system: *VulkanSystem) void {
+pub fn deinit(self: *Swapchain, system: *VulkanSystem, window: *Window) void {
+    window.window_size_pixels.remove_callback(self.recreate_callback_handle);
+    system.allocator.destroy(self.recreate_callback_data);
+
+    const deinit_ctx = system.allocator.create(DeinitGenericCtx) catch unreachable;
+    deinit_ctx.* = DeinitGenericCtx{
+        .swapchain = self,
+        .system = system,
+    };
+
+    system.deinit_queue.insert(
+        @ptrCast(deinit_ctx),
+        &deinit_generic,
+    ) catch unreachable;
+}
+
+pub fn deinit_queue_portion(
+    self: Swapchain,
+    allocator: std.mem.Allocator,
+    system: *VulkanSystem,
+) void {
+    allocator.destroy(self.recreate_callback_data);
+
     allocator.free(self.image_available_semaphores);
     allocator.free(self.a_semaphores);
     allocator.free(self.b_semaphores);
@@ -94,7 +139,11 @@ pub fn deinit(self: Swapchain, allocator: std.mem.Allocator, system: *VulkanSyst
 
     var i: usize = 0;
     while (i < self.swapchain_image_views.len) : (i += 1) {
-        l0vk.vkDestroyImageView(system.logical_device, self.swapchain_image_views[i], null);
+        l0vk.vkDestroyImageView(
+            system.logical_device,
+            self.swapchain_image_views[i],
+            null,
+        );
     }
     allocator.free(self.swapchain_image_views);
     allocator.free(self.swapchain_images);
@@ -109,7 +158,7 @@ pub const DeinitGenericCtx = struct {
 pub fn deinit_generic(untyped_ctx: *anyopaque) void {
     const ctx: *DeinitGenericCtx = @ptrCast(@alignCast(untyped_ctx));
 
-    ctx.swapchain.deinit(ctx.system.allocator, ctx.system);
+    ctx.swapchain.deinit_queue_portion(ctx.system.allocator, ctx.system);
     ctx.system.allocator.destroy(ctx);
 }
 
@@ -134,7 +183,11 @@ pub fn recreate_swapchain(
 
     var i: usize = 0;
     while (i < self.swapchain_image_views.len) : (i += 1) {
-        l0vk.vkDestroyImageView(system.logical_device, self.swapchain_image_views[i], null);
+        l0vk.vkDestroyImageView(
+            system.logical_device,
+            self.swapchain_image_views[i],
+            null,
+        );
     }
     allocator.free(self.swapchain_image_views);
     allocator.free(self.swapchain_images);
@@ -302,4 +355,54 @@ pub fn current_render_finished_semaphore(self: *const Swapchain) SemaphoreHandle
 
 pub fn current_in_flight_fence(self: *const Swapchain) FenceHandle {
     return self.in_flight_fences[self.current_frame];
+}
+
+// ---
+
+pub fn register_recreate_callback_for_window_size(
+    self: *Swapchain,
+    renderer: *Renderer,
+    window: *Window,
+) !void {
+    self.recreate_callback_data.* = .{
+        .self = self,
+        .renderer = renderer,
+        .window = window,
+    };
+
+    const handle = try window.window_size_pixels.add_callback(.{
+        .callback_fn = &recreate_callback,
+        .extra_data = @ptrCast(self.recreate_callback_data),
+        .priority = 100,
+        .name = "Renderer::Swapchain",
+    });
+    self.recreate_callback_handle = handle;
+}
+
+const RecreateCallbackData = struct {
+    self: *Swapchain,
+    renderer: *Renderer,
+    window: *Window,
+};
+
+pub fn recreate_callback(new_size: Window.WindowSize, data_untyped: ?*anyopaque) void {
+    _ = new_size;
+    const data: *RecreateCallbackData = @ptrCast(@alignCast(data_untyped.?));
+
+    data.self.recreate(data.renderer, data.window) catch unreachable;
+}
+
+pub fn recreate(self: *Swapchain, renderer: *Renderer, window: *Window) !void {
+    const swapchain_settings = try query_swapchain_settings(
+        renderer.allocator,
+        renderer.system.physical_device,
+        renderer.system.logical_device,
+        renderer.system.surface,
+    );
+    try self.recreate_swapchain(
+        renderer.allocator,
+        &renderer.system,
+        swapchain_settings,
+        window.window,
+    );
 }

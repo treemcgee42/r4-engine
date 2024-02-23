@@ -10,7 +10,7 @@ const vulkan = @import("vulkan");
 const VulkanRenderPass = @import("vulkan//RenderPass.zig");
 const Renderer = @import("./Renderer.zig");
 const Resource = Renderer.Resource;
-const Swapchain = @import("./Swapchain.zig");
+const Swapchain = @import("vulkan/Swapchain.zig");
 const Window = @import("../Window.zig");
 
 enable_imgui: bool,

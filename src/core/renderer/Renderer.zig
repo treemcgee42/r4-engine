@@ -7,7 +7,7 @@ const VulkanSystem = @import("vulkan/VulkanSystem.zig");
 const RenderPass = @import("RenderPass.zig");
 const RenderGraph = @import("RenderGraph.zig");
 pub const RenderPassInfo = RenderPass.RenderPassInfo;
-const Swapchain = @import("Swapchain.zig");
+const Swapchain = @import("vulkan/Swapchain.zig");
 const Window = @import("../Window.zig");
 const Ui = @import("./Ui.zig");
 const VulkanRenderPass = VulkanSystem.Renderpass;
@@ -107,28 +107,6 @@ pub fn end_imgui(self: *Renderer) void {
     cimgui.igRender();
 }
 
-pub fn begin_frame(self: *Renderer, window: *Window) !void {
-    self.command_buffer.reset();
-
-    self.current_frame_context = .{
-        .image_index = undefined,
-
-        .command_buffer_a = undefined,
-        .command_buffer_b = undefined,
-
-        .image_available_semaphore = undefined,
-        .a_semaphore = undefined,
-        .b_semaphore = undefined,
-        .render_finished_semaphore = undefined,
-
-        .fence = undefined,
-
-        .window = window,
-
-        .render_pass = undefined,
-    };
-}
-
 pub fn begin_frame_new(self: *Renderer, window: *Window) !void {
     self.command_buffer.reset();
 
@@ -152,7 +130,7 @@ pub fn begin_frame_new(self: *Renderer, window: *Window) !void {
 
     // ---
 
-    var swapchain = &window.swapchain.swapchain;
+    var swapchain = self.system.swapchain;
     var system = self.system;
 
     const image_available_semaphore = swapchain.current_image_available_semaphore();
@@ -189,7 +167,7 @@ pub fn begin_frame_new(self: *Renderer, window: *Window) !void {
                 // TODO: this won't trigger all the registered callbacks on the
                 // window size.
                 try window.recreate_swapchain_callback(self);
-                return self.begin_frame(window);
+                return self.begin_frame_new(window);
             },
             else => unreachable,
         }
@@ -242,7 +220,8 @@ pub fn begin_frame_new(self: *Renderer, window: *Window) !void {
 }
 
 pub fn end_frame_new(self: *Renderer, window: *Window) !void {
-    var swapchain = &window.swapchain.swapchain;
+    _ = window;
+    var swapchain = self.system.swapchain;
     var system = self.system;
     const current_frame_context = self.current_frame_context.?;
     const render_finished_semaphore = swapchain.current_render_finished_semaphore();
@@ -263,138 +242,6 @@ pub fn end_frame_new(self: *Renderer, window: *Window) !void {
     };
 
     const result = vulkan.vkQueuePresentKHR(self.system.present_queue, &present_info);
-    if (result != vulkan.VK_SUCCESS) {
-        switch (result) {
-            vulkan.VK_ERROR_OUT_OF_DATE_KHR => {
-                try current_frame_context.window.recreate_swapchain_callback(self);
-            },
-            vulkan.VK_SUBOPTIMAL_KHR => {
-                try current_frame_context.window.recreate_swapchain_callback(self);
-            },
-            else => unreachable,
-        }
-    }
-
-    if (current_frame_context.window.framebuffer_resized) {
-        current_frame_context.window.framebuffer_resized = false;
-        try current_frame_context.window.recreate_swapchain_callback(self);
-    }
-
-    swapchain.current_frame = (swapchain.current_frame + 1) % Swapchain.max_frames_in_flight;
-}
-
-pub fn end_frame(self: *Renderer, window: *Window) !void {
-    if (self.render_graph == null) {
-        self.render_graph = try RenderGraph.init(self, &self.command_buffer);
-        try self.render_graph.?.compile(self);
-    }
-
-    var swapchain = &window.swapchain.swapchain;
-    var system = self.system;
-
-    const image_available_semaphore = swapchain.current_image_available_semaphore();
-    const render_finished_semaphore = swapchain.current_render_finished_semaphore();
-    const fence = swapchain.current_in_flight_fence();
-
-    // --- Wait for the previous frame to finish.
-
-    var result = vulkan.vkWaitForFences(
-        self.system.logical_device,
-        1,
-        system.get_fence_from_handle(fence),
-        vulkan.VK_TRUE,
-        std.math.maxInt(u64),
-    );
-    if (result != vulkan.VK_SUCCESS) {
-        unreachable;
-    }
-
-    // --- Acquire the next image.
-
-    var image_index: u32 = undefined;
-    result = vulkan.vkAcquireNextImageKHR(
-        system.logical_device,
-        swapchain.swapchain,
-        std.math.maxInt(u64),
-        system.get_semaphore_from_handle(image_available_semaphore).*,
-        @ptrCast(vulkan.VK_NULL_HANDLE),
-        &image_index,
-    );
-    if (result != vulkan.VK_SUCCESS and result != vulkan.VK_SUBOPTIMAL_KHR) {
-        switch (result) {
-            vulkan.VK_ERROR_OUT_OF_DATE_KHR => {
-                try window.recreate_swapchain_callback(self);
-                return self.begin_frame(window);
-            },
-            else => unreachable,
-        }
-    }
-
-    // --- Reset the fence if submitting work.
-
-    result = vulkan.vkResetFences(
-        system.logical_device,
-        1,
-        system.get_fence_from_handle(fence),
-    );
-    if (result != vulkan.VK_SUCCESS) {
-        unreachable;
-    }
-
-    // ---
-
-    const command_buffer_a = swapchain.a_command_buffers[swapchain.current_frame];
-    const command_buffer_b = swapchain.b_command_buffers[swapchain.current_frame];
-
-    result = vulkan.vkResetCommandBuffer(command_buffer_a, 0);
-    if (result != vulkan.VK_SUCCESS) {
-        unreachable;
-    }
-    result = vulkan.vkResetCommandBuffer(command_buffer_b, 0);
-    if (result != vulkan.VK_SUCCESS) {
-        unreachable;
-    }
-
-    // ---
-
-    self.current_frame_context = .{
-        .image_index = image_index,
-
-        .command_buffer_a = command_buffer_a,
-        .command_buffer_b = command_buffer_b,
-
-        .image_available_semaphore = image_available_semaphore,
-        .a_semaphore = swapchain.a_semaphores[swapchain.current_frame],
-        .b_semaphore = swapchain.b_semaphores[swapchain.current_frame],
-        .render_finished_semaphore = render_finished_semaphore,
-
-        .fence = fence,
-
-        .window = window,
-
-        .render_pass = null,
-    };
-
-    try self.render_graph.?.execute(self);
-
-    const current_frame_context = self.current_frame_context.?;
-
-    // --- Present.
-
-    const swapchains = [_]vulkan.VkSwapchainKHR{swapchain.swapchain};
-    const present_info = vulkan.VkPresentInfoKHR{
-        .sType = vulkan.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-        .waitSemaphoreCount = 1,
-        .pWaitSemaphores = system.get_semaphore_from_handle(render_finished_semaphore),
-        .swapchainCount = swapchains.len,
-        .pSwapchains = swapchains[0..].ptr,
-        .pImageIndices = &current_frame_context.image_index,
-
-        .pResults = null,
-        .pNext = null,
-    };
-
-    result = vulkan.vkQueuePresentKHR(self.system.present_queue, &present_info);
     if (result != vulkan.VK_SUCCESS) {
         switch (result) {
             vulkan.VK_ERROR_OUT_OF_DATE_KHR => {

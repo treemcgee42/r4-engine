@@ -136,11 +136,13 @@ pub const ScenePass = struct {
             self.pipeline,
         );
 
+        const swapchain_extent = self.core.renderer.system.swapchain.swapchain_extent;
+
         const viewport = vulkan.VkViewport{
             .x = 0.0,
             .y = 0.0,
-            .width = @floatFromInt(self.window.swapchain.swapchain.swapchain_extent.width),
-            .height = @floatFromInt(self.window.swapchain.swapchain.swapchain_extent.height),
+            .width = @floatFromInt(swapchain_extent.width),
+            .height = @floatFromInt(swapchain_extent.height),
             .minDepth = 0.0,
             .maxDepth = 1.0,
         };
@@ -148,7 +150,7 @@ pub const ScenePass = struct {
 
         const scissor = vulkan.VkRect2D{
             .offset = .{ .x = 0, .y = 0 },
-            .extent = self.window.swapchain.swapchain.swapchain_extent,
+            .extent = swapchain_extent,
         };
         vulkan.vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 
@@ -170,11 +172,13 @@ pub const MainPass = struct {
     pub fn render(self_untyped: *anyopaque, command_buffer: l0vk.VkCommandBuffer) anyerror!void {
         const self: *MainPass = @ptrCast(@alignCast(self_untyped));
 
+        const swapchain_extent = self.core.renderer.system.swapchain.swapchain_extent;
+
         const viewport = vulkan.VkViewport{
             .x = 0.0,
             .y = 0.0,
-            .width = @floatFromInt(self.window.swapchain.swapchain.swapchain_extent.width),
-            .height = @floatFromInt(self.window.swapchain.swapchain.swapchain_extent.height),
+            .width = @floatFromInt(swapchain_extent.width),
+            .height = @floatFromInt(swapchain_extent.height),
             .minDepth = 0.0,
             .maxDepth = 1.0,
         };
@@ -182,7 +186,7 @@ pub const MainPass = struct {
 
         const scissor = vulkan.VkRect2D{
             .offset = .{ .x = 0, .y = 0 },
-            .extent = self.window.swapchain.swapchain.swapchain_extent,
+            .extent = swapchain_extent,
         };
         vulkan.vkCmdSetScissor(command_buffer, 0, 1, &scissor);
     }
@@ -211,6 +215,8 @@ pub fn main() !void {
 
     // --- Build rendergraph.
 
+    const swapchain_image_format = core.renderer.system.swapchain.swapchain_image_format;
+
     // ------ Scene node
 
     const scene_color_attachment = ResourceDescription{
@@ -219,7 +225,7 @@ pub fn main() !void {
         .info = .{
             .attachment = .{
                 .kind = .color,
-                .format = window.swapchain.swapchain.swapchain_image_format,
+                .format = swapchain_image_format,
                 .resolution = .{
                     .relative = .{
                         .relative_to = .window,
@@ -275,7 +281,7 @@ pub fn main() !void {
         .info = .{
             .attachment = .{
                 .kind = .color_final,
-                .format = window.swapchain.swapchain.swapchain_image_format,
+                .format = swapchain_image_format,
                 .resolution = .{
                     .relative = .{
                         .relative_to = .window,

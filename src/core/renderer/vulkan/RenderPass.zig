@@ -92,12 +92,12 @@ pub const RenderpassSystem = struct {
 
     pub fn pre_begin(
         self: *RenderpassSystem,
-        window: *Window,
+        system: *VulkanSystem,
         current_frame: usize,
         handle: RenderpassHandle,
     ) void {
         const rp_ptr = &self.renderpasses.items[handle];
-        rp_ptr.pre_begin(window, current_frame);
+        rp_ptr.pre_begin(system, current_frame);
     }
 
     pub fn begin(
@@ -180,7 +180,7 @@ pub const Renderpass = struct {
 
         const render_info = try allocator.create(l0vk.VkRenderingInfo);
 
-        const swapchain_extent = info.window.swapchain.swapchain.swapchain_extent;
+        const swapchain_extent = info.system.swapchain.swapchain_extent;
         const render_area = RenderArea{
             .width = swapchain_extent.width,
             .height = swapchain_extent.height,
@@ -431,18 +431,18 @@ pub const Renderpass = struct {
             .Device = @ptrCast(system.logical_device),
             .Queue = @ptrCast(system.graphics_queue),
             .DescriptorPool = @ptrCast(imgui_descriptor_pool),
-            .MinImageCount = @intCast(window.swapchain.swapchain.swapchain_images.len),
-            .ImageCount = @intCast(window.swapchain.swapchain.swapchain_images.len),
+            .MinImageCount = @intCast(system.swapchain.swapchain_images.len),
+            .ImageCount = @intCast(system.swapchain.swapchain_images.len),
             .MSAASamples = @import("vulkan").VK_SAMPLE_COUNT_1_BIT,
             .UseDynamicRendering = true,
-            .ColorAttachmentFormat = @intFromEnum(window.swapchain.swapchain.swapchain_image_format),
+            .ColorAttachmentFormat = @intFromEnum(system.swapchain.swapchain_image_format),
         };
         _ = cimgui.ImGui_ImplVulkan_Init(@ptrCast(&vulkan_init_info), @ptrCast(l0vk.VK_NULL_HANDLE));
 
         // --- Load fonts.
 
         const command_pool = system.command_pool;
-        const command_buffer = window.swapchain.swapchain.a_command_buffers[0];
+        const command_buffer = system.swapchain.a_command_buffers[0];
 
         try l0vk.vkResetCommandPool(
             system.logical_device,
@@ -481,14 +481,14 @@ pub const Renderpass = struct {
         };
     }
 
-    pub fn pre_begin(self: *Self, window: *Window, current_frame: usize) void {
+    pub fn pre_begin(self: *Self, system: *VulkanSystem, current_frame: usize) void {
         var i: usize = 0;
         while (i < self.color_attachment_infos.len) : (i += 1) {
             const attachment_ptr = &self.color_attachments[i];
             const info_ptr = &self.color_attachment_infos[i];
 
             if (info_ptr.kind == .color_final) {
-                attachment_ptr.imageView = window.swapchain.swapchain.swapchain_image_views[current_frame];
+                attachment_ptr.imageView = system.swapchain.swapchain_image_views[current_frame];
             }
         }
     }
