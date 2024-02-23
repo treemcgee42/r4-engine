@@ -256,7 +256,7 @@ pub const RenderGraph = struct {
         while (i < self.nodes.items.len) : (i += 1) {
             const node_ptr = &self.nodes.items[i];
 
-            var attachments = std.ArrayList(VulkanSystem.DynamicRenderpass2Attachment).init(self.allocator);
+            var attachments = std.ArrayList(VulkanSystem.RenderpassAttachment).init(self.allocator);
             defer attachments.deinit();
 
             var j: usize = 0;
@@ -276,14 +276,14 @@ pub const RenderGraph = struct {
                     image_view = try system.resource_system.get_image_view(output_name);
                 }
 
-                try attachments.append(VulkanSystem.DynamicRenderpass2Attachment{
+                try attachments.append(VulkanSystem.RenderpassAttachment{
                     .image_view = image_view,
                     .kind = attachment_kind,
                     .format = attachment_format,
                 });
             }
 
-            const create_info = VulkanSystem.DynamicRenderpass2CreateInfo{
+            const create_info = VulkanSystem.RenderpassCreateInfo{
                 .name = node_ptr.name,
                 .system = system,
                 .window = window,
@@ -291,7 +291,7 @@ pub const RenderGraph = struct {
                 .clear_color = node_ptr.clear_color,
                 .enable_imgui = node_ptr.imgui_enabled,
             };
-            const renderpass = try system.renderpass_system.create_new_renderpass(&create_info);
+            const renderpass = try system.renderpass_system.create_renderpass(&create_info);
             self.node_data.items[i].renderpass = renderpass;
         }
     }

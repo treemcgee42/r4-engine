@@ -433,8 +433,6 @@ fn window_resize_callback(window: ?*glfw.GLFWwindow, width: c_int, height: c_int
 
 pub fn recreate_swapchain_callback(self: *Window, renderer: *Renderer) !void {
     try self.swapchain.recreate(renderer, self);
-
-    try renderer.system.handle_swapchain_resize_for_renderpasses(self);
 }
 
 pub const WindowSize = struct {

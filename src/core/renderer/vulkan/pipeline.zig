@@ -238,51 +238,33 @@ pub fn build_pipeline(system: *VulkanSystem, create_info: PipelineCreateInfo) !P
     // -- Pipeline.
 
     // TODO: better error handling
-    const renderpass = system.renderpass_system.get_renderpass_from_name(create_info.renderpass_name) orelse unreachable;
+    const renderpass = system.renderpass_system.get_renderpass_from_name(
+        create_info.renderpass_name,
+    ) orelse unreachable;
 
     var pipeline_rendering_create_info: l0vk.VkPipelineRenderingCreateInfo = undefined;
     var pipeline_pNext: ?*const l0vk.VkPipelineRenderingCreateInfo = undefined;
     var pipeline_renderpass: l0vk.VkRenderPass = undefined;
     var color_attachment_formats = [1]l0vk.VkFormat{undefined};
     var depth_attachment_format: l0vk.VkFormat = undefined;
-    switch (renderpass.*) {
-        .dynamic => {
-            color_attachment_formats[0] = renderpass.dynamic.attachments.getPtr("color").?.format;
-            depth_attachment_format = if (renderpass.dynamic.attachments.getPtr("depth")) |depth| depth.format else .undefined;
-            pipeline_rendering_create_info = l0vk.VkPipelineRenderingCreateInfo{
-                .colorAttachmentCount = 1,
-                .pColorAttachmentFormats = &color_attachment_formats,
-                .depthAttachmentFormat = depth_attachment_format,
-                .stencilAttachmentFormat = .undefined,
-            };
 
-            pipeline_pNext = &pipeline_rendering_create_info;
-            pipeline_renderpass = null;
-        },
-        .new => {
-            color_attachment_formats[0] = renderpass.new.color_attachment_infos[0].format;
-            const has_depth_attachment = renderpass.new.depth_attachments.len > 0;
-            if (has_depth_attachment) {
-                depth_attachment_format = renderpass.new.depth_attachment_infos[0].format;
-            } else {
-                depth_attachment_format = .undefined;
-            }
-
-            pipeline_rendering_create_info = l0vk.VkPipelineRenderingCreateInfo{
-                .colorAttachmentCount = 1,
-                .pColorAttachmentFormats = &color_attachment_formats,
-                .depthAttachmentFormat = depth_attachment_format,
-                .stencilAttachmentFormat = .undefined,
-            };
-
-            pipeline_pNext = &pipeline_rendering_create_info;
-            pipeline_renderpass = null;
-        },
-        .static => {
-            pipeline_pNext = null;
-            pipeline_renderpass = renderpass.static.render_pass;
-        },
+    color_attachment_formats[0] = renderpass.color_attachment_infos[0].format;
+    const has_depth_attachment = renderpass.depth_attachments.len > 0;
+    if (has_depth_attachment) {
+        depth_attachment_format = renderpass.depth_attachment_infos[0].format;
+    } else {
+        depth_attachment_format = .undefined;
     }
+
+    pipeline_rendering_create_info = l0vk.VkPipelineRenderingCreateInfo{
+        .colorAttachmentCount = 1,
+        .pColorAttachmentFormats = &color_attachment_formats,
+        .depthAttachmentFormat = depth_attachment_format,
+        .stencilAttachmentFormat = .undefined,
+    };
+
+    pipeline_pNext = &pipeline_rendering_create_info;
+    pipeline_renderpass = null;
 
     const pipeline_info = l0vk.VkGraphicsPipelineCreateInfo{
         .pNext = pipeline_pNext,

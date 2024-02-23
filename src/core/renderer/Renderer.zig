@@ -186,6 +186,8 @@ pub fn begin_frame_new(self: *Renderer, window: *Window) !void {
     if (result != vulkan.VK_SUCCESS and result != vulkan.VK_SUBOPTIMAL_KHR) {
         switch (result) {
             vulkan.VK_ERROR_OUT_OF_DATE_KHR => {
+                // TODO: this won't trigger all the registered callbacks on the
+                // window size.
                 try window.recreate_swapchain_callback(self);
                 return self.begin_frame(window);
             },

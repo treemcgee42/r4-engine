@@ -7,13 +7,10 @@ const VulkanSystem = @This();
 const PipelineSystem = @import("./pipeline.zig").PipelineSystem;
 const renderpass_module = @import("./RenderPass.zig");
 pub const RenderpassSystem = renderpass_module.RenderpassSystem;
-pub const StaticRenderpassCreateInfo = renderpass_module.StaticRenderpass.CreateInfo;
-pub const DynamicRenderpassCreateInfo = renderpass_module.DynamicRenderpass.CreateInfo;
-pub const DynamicRenderpass2CreateInfo = renderpass_module.DynamicRenderpass2.CreateInfo;
-pub const DynamicRenderpass2Attachment = renderpass_module.DynamicRenderpass2.Attachment;
+pub const RenderpassCreateInfo = renderpass_module.Renderpass.CreateInfo;
+pub const RenderpassAttachment = renderpass_module.Renderpass.Attachment;
 pub const Renderpass = renderpass_module.Renderpass;
 pub const RenderpassHandle = renderpass_module.RenderpassHandle;
-pub const RenderpassImage = renderpass_module.Image;
 const Window = @import("../../Window.zig");
 const l0 = @import("../layer0/l0.zig");
 const l0vk = l0.vulkan;
@@ -883,31 +880,6 @@ fn create_command_pool(
 }
 
 // --- }}}1
-
-pub fn create_static_renderpass(
-    self: *VulkanSystem,
-    info: *const StaticRenderpassCreateInfo,
-) !RenderpassHandle {
-    return self.renderpass_system.create_static_renderpass(info);
-}
-
-pub fn create_dynamic_renderpass(
-    self: *VulkanSystem,
-    info: *const DynamicRenderpassCreateInfo,
-) !RenderpassHandle {
-    return self.renderpass_system.create_dynamic_renderpass(info);
-}
-
-pub fn get_renderpass_from_handle(
-    self: *VulkanSystem,
-    handle: RenderpassHandle,
-) *Renderpass {
-    return self.renderpass_system.get_renderpass_from_handle(handle);
-}
-
-pub fn handle_swapchain_resize_for_renderpasses(self: *VulkanSystem, window: *Window) !void {
-    return self.renderpass_system.resize_all(self, window);
-}
 
 // ---
 
