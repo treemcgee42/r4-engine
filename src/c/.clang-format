@@ -1,0 +1,12 @@
+AlignAfterOpenBracket: Align
+
+ColumnLimit: 100
+
+IndentWidth: 4
+
+PointerAlignment: Left
+
+SpacesInParens: Custom
+SpacesInParensOptions:
+  InConditionalStatements: true
+  Other: true

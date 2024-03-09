@@ -11,3 +11,10 @@ imgui.ini
 .VSCodeCounter/
 .vscode/
 .nvim/
+*.*~
+/.xmake/
+/src/c/.cache/
+/src/c/.projectile
+/src/c/.xmake/
+/src/c/build/
+/src/c/compile_commands.json

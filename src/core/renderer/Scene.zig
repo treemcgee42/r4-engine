@@ -60,6 +60,7 @@ pub fn init(allocator: std.mem.Allocator, renderer: *Renderer) !Self {
 }
 
 pub fn deinit(self: *Self) void {
+    self.camera.deinit();
     self.mesh_system.deinit();
     self.material_system.deinit();
     self.objects.deinit();
@@ -241,6 +242,8 @@ pub fn draw(self: *Self, command_buffer: l0vk.VkCommandBuffer) !void {
 
 // ---
 
+const tm42_camera = @import("tm42_camera");
+
 pub const Camera = struct {
     look_from: math.Vec3f,
     look_at: math.Vec3f,
@@ -249,19 +252,53 @@ pub const Camera = struct {
     view_matrix: math.Mat4f,
     projection_matrix: math.Mat4f,
 
-    pub fn init(look_from: math.Vec3f, look_at: math.Vec3f, up_direction: math.Vec3f) Camera {
-        var look_from_ = look_from;
-        var look_at_ = look_at;
-        var up_direction_ = up_direction;
+    t_camera: *tm42_camera.Tm42TurntableCamera,
+
+    pub fn init(
+        look_from: math.Vec3f,
+        look_at: math.Vec3f,
+        up_direction: math.Vec3f,
+    ) Camera {
+        // var look_from_ = look_from;
+        // var look_at_ = look_at;
+        // var up_direction_ = up_direction;
+
+        // ---
+
+        const look_at_cast: [*c]f32 = @constCast(&look_at.raw[0]);
+        const look_from_cast: [*c]f32 = @constCast(&look_from.raw[0]);
+        const tm42_create_info = tm42_camera.Tm42CameraCreateInfo{
+            .look_at = look_at_cast,
+            .look_from = look_from_cast,
+            .vertical_fov = 60,
+            .aspect_ratio = 1.33,
+            .z_near = 0.1,
+            .z_far = -1,
+        };
+
+        const t_camera = tm42_camera.tm42_create_turntable_camera(tm42_create_info);
+
+        const view_matrix = math.Mat4f.init_from_c_array(tm42_camera.tm42_turntable_camera_get_view_matrix(t_camera));
+        const proj_matrix = math.Mat4f.init_from_c_array(tm42_camera.tm42_turntable_camera_get_projection_matrix(t_camera));
+
+        // ---
 
         return .{
             .look_from = look_from,
             .look_at = look_at,
             .up_direction = up_direction,
 
-            .view_matrix = math.Mat4f.init_look_at(&look_from_, &look_at_, &up_direction_),
-            .projection_matrix = math.Mat4f.init_perspective(70.0, 1700 / 900, 0.1, 200),
+            // .view_matrix = math.Mat4f.init_look_at(&look_from_, &look_at_, &up_direction_),
+            .view_matrix = view_matrix,
+            // .projection_matrix = math.Mat4f.init_perspective(70.0, 1700 / 900, 0.1, 200),
+            .projection_matrix = proj_matrix,
+
+            .t_camera = t_camera,
         };
+    }
+
+    pub fn deinit(self: *Camera) void {
+        tm42_camera.tm42_destroy_turntable_camera(self.t_camera);
     }
 };
 

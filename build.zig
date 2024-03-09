@@ -75,6 +75,10 @@ pub fn build(b: *std.Build) void {
         .source_file = .{ .path = "src/c/cimgui.zig" },
     });
 
+    const tm42_camera_module = b.createModule(.{
+        .source_file = .{ .path = "src/c/tm42_camera.zig" },
+    });
+
     // r4-core
     const r4_core_module = b.createModule(.{
         .source_file = .{ .path = "src/core/lib.zig" },
@@ -114,6 +118,10 @@ pub fn build(b: *std.Build) void {
             .{
                 .name = "cglm",
                 .module = cglm_module,
+            },
+            .{
+                .name = "tm42_camera",
+                .module = tm42_camera_module,
             },
         },
     });
@@ -237,6 +245,12 @@ fn link_r4_core(
     exe.addIncludePath(.{ .path = "./external/cimgui" });
     exe.addIncludePath(.{ .path = "./external/cimgui/generator/output" });
     exe.linkLibrary(build_cimgui(b, target));
+
+    exe.addIncludePath(.{ .path = "./src/c" });
+    // exe.addCSourceFile(.{
+    //     .file = .{ .path = "./src/c/tm42_camera_impl.c" },
+    //     .flags = &[_][]const u8{},
+    // });
 
     exe.addModule("r4_core", r4_core);
 }

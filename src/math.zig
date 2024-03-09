@@ -61,6 +61,26 @@ pub const Mat4f = extern struct {
         };
     }
 
+    pub fn init_from_c_array(arr: [*c]f32) Mat4f {
+        var zigMatrix: [4][4]f32 = undefined;
+
+        // Loop through the columns
+        var col: usize = 0;
+        while (col < 4) : (col += 1) {
+            // Loop through the rows
+            var row: usize = 0;
+            while (row < 4) : (row += 1) {
+                // Copy from the one-dimensional C array to the two-dimensional Zig array.
+                // Note: In column-major storage, index = column * NUM_ROWS + row
+                zigMatrix[col][row] = arr[col * 4 + row];
+            }
+        }
+
+        return Mat4f{
+            .raw = zigMatrix,
+        };
+    }
+
     pub fn init_identity() Mat4f {
         return init_with_cols(
             Vec4f.init(1.0, 0.0, 0.0, 0.0),
