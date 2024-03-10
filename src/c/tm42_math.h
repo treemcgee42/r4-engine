@@ -40,6 +40,8 @@ struct Tm42Mat4 {
     };
 };
 
+float tm42_deg_to_rad( float degrees );
+
 float tm42_point3_distance( const float* p1, const float* p2 );
 
 struct Tm42Vec3 tm42_vec3_add( const float* v1, const float* v2 );
@@ -68,6 +70,8 @@ struct Tm42Mat4 tm42_mat4_create_identity();
 struct Tm42Mat4 tm42_mat4_mul_mat4( const float* m1, const float* m2 );
 struct Tm42Mat4 tm42_mat4_from_quaternion( const float* q );
 void tm42_mat4_apply_translation( float* m, const float* v );
+/// Assumes right handed coordinate system, depth mapping [0,1].
+///
 /// Parameters:
 /// - vertical_fov: vertical field of view in radians
 /// - aspect_ratio: aspect ratio, e.g. screen_width / screen_height
@@ -86,6 +90,8 @@ void tm42_mat4_fprint( FILE* f, const float* m );
 #ifdef TM42_MATH_IMPLEMENTATION
 
 #include <math.h>
+
+float tm42_deg_to_rad( float degrees ) { return ( degrees * M_PI / 180.f ); }
 
 // [[ Point3 ]]
 
@@ -152,6 +158,12 @@ void tm42_vec4_homogeneize( float* v ) {
     v[2] /= v[3];
     v[3] = 1;
 }
+
+#ifdef TM42_MATH_DEBUG_PRINT
+void tm42_vec4_fprint( FILE* f, const float* v ) {
+    fprintf( f, "Vec4: ( %f, %f, %f, %f )", v[0], v[1], v[2], v[3] );
+}
+#endif
 
 // [[ Quaternion ]]
 
@@ -333,13 +345,6 @@ void tm42_mat4_apply_translation( float* m, const float* v ) {
     // remains unchanged
 }
 
-/// Assumes right handed coordinate system, depth mapping [0,1].
-///
-/// Parameters:
-/// - vertical_fov: vertical field of view in radians
-/// - aspect_ratio: aspect ratio, e.g. screen_width / screen_height
-/// - z_near: near clipping plane
-/// - z_far: far clipping plane, where a negative value indicates an infinitely far away plane
 struct Tm42Mat4 tm42_mat4_create_projection( float vertical_fov, float aspect_ratio, float z_near,
                                              float z_far ) {
     struct Tm42Mat4 result = { { { 0 } } };
@@ -370,7 +375,7 @@ struct Tm42Vec3 tm42_mat4_transform_vec3( const float* m, const float* v ) {
 }
 
 #ifdef TM42_MATH_DEBUG_PRINT
-void tm42_mat4_fprint( FILE* f, float* m ) {
+void tm42_mat4_fprint( FILE* f, const float* m ) {
     fprintf( f, "Matrix 4x4:\n" );
     for ( int row = 0; row < 4; ++row ) {
         // Print each row
